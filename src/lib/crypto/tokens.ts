@@ -13,7 +13,7 @@ const IV_LENGTH_BYTES = 12; // Recommended IV length for GCM
 function getEncryptionKey(): Buffer {
   const env = getEnv();
   const keyHex = env.THREADS_TOKEN_ENCRYPTION_KEY;
-  if (!keyHex || keyHex.length !== 64) {
+  if (!keyHex || !/^[0-9a-fA-F]{64}$/.test(keyHex)) {
     throw new Error("Invalid THREADS_TOKEN_ENCRYPTION_KEY: must be a 64-character hex string (32 bytes)");
   }
   return Buffer.from(keyHex, "hex");

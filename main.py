@@ -1,5 +1,0 @@
-from community_manager.api import main
-
-if __name__ == "__main__":
-    main()
-

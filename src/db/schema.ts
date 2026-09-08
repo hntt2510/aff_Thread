@@ -24,8 +24,13 @@ export const threadsAccounts = pgTable("threads_accounts", {
 export const posts = pgTable("posts", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   accountId: text("account_id")
-    .notNull()
-    .references(() => threadsAccounts.id, { onDelete: "cascade" }),
+    .references(() => threadsAccounts.id, { onDelete: "set null" }),
+
+  // Immutable historical account snapshot fields preserved even if account is removed/disconnected
+  accountThreadsUserId: text("account_threads_user_id").notNull(),
+  accountUsername: text("account_username").notNull(),
+  accountDisplayName: text("account_display_name").notNull(),
+
   text: text("text").notNull(),
 
   // Threads API tracking

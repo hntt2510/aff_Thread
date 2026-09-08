@@ -7,7 +7,7 @@ const envSchema = z.object({
   SESSION_SECRET: z.string({ required_error: "SESSION_SECRET is required" }).min(32, "SESSION_SECRET must be at least 32 characters"),
   THREADS_TOKEN_ENCRYPTION_KEY: z
     .string({ required_error: "THREADS_TOKEN_ENCRYPTION_KEY is required" })
-    .length(64, "THREADS_TOKEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)"),
+    .regex(/^[0-9a-fA-F]{64}$/, "THREADS_TOKEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)"),
   DATABASE_URL: z.string({ required_error: "DATABASE_URL is required" }).min(1, "DATABASE_URL is required"),
 });
 

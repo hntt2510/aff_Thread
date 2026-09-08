@@ -184,4 +184,51 @@ describe("PostService Multi-Account Publishing & Lifecycle", () => {
     expect(recordA?.status).toBe("FAILED");
     expect(recordB?.status).toBe("PUBLISHED");
   });
+
+  it("preserves post history and immutable account identity when account is removed/disconnected", async () => {
+    vi.spyOn(threadsClient, "createTextContainer").mockResolvedValue({
+      id: "container_audit_persist",
+    });
+    vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({
+      id: "threads_post_audit_persist",
+    });
+
+    // 1. Publish post using Account A
+    const publishedPost = await postService.publishTextPost(
+      accountA.id,
+      "Post from Account A that should survive account removal"
+    );
+    expect(publishedPost.status).toBe("PUBLISHED");
+
+    // Verify post appears in history with active account identity
+    let history = await postService.listPosts();
+    expect(history).toHaveLength(1);
+    expect(history[0].account?.username).toBe("account_a");
+    expect(history[0].account?.displayName).toBe("Account A");
+    expect(history[0].account?.isDisconnected).toBe(false);
+
+    // 2. Remove/disconnect Account A
+    await accountService.removeAccount(accountA.id);
+
+    // Verify account is removed from active accounts list (unavailable for new publishing)
+    const activeAccounts = await accountService.listAccounts();
+    expect(activeAccounts.find((a) => a.id === accountA.id)).toBeUndefined();
+
+    // Verify publishing with removed account now fails
+    await expect(
+      postService.publishTextPost(accountA.id, "Attempting to publish with deleted account")
+    ).rejects.toThrow("Account not found");
+
+    // 3. Historical post remains completely intact with preserved identity
+    history = await postService.listPosts();
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe(publishedPost.id);
+    expect(history[0].text).toBe("Post from Account A that should survive account removal");
+    expect(history[0].threadsPostId).toBe("threads_post_audit_persist");
+
+    // Preserved historical identity snapshot
+    expect(history[0].account?.username).toBe("account_a");
+    expect(history[0].account?.displayName).toBe("Account A");
+    expect(history[0].account?.isDisconnected).toBe(true);
+  });
 });

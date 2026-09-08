@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build, Lint, Typecheck, and Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword123
+          POSTGRES_DB: aff_thread_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD_HASH: 3be86a5c71e77ff509cf55db984bca67:16e3e2e64164eed870167fde1c78959e820956a1de482d003c84218ed5ea184be19cdbf025f397d2ba394ccde5aa8e3ebdfdae6b01d42a0cab18c9f6258e98b7
+      SESSION_SECRET: 85a12e1c87c7d99bdf071d728f89a9bf6638b509428cb11b1c465297abcf5121
+      THREADS_TOKEN_ENCRYPTION_KEY: f33d01c7a05a6d150ff2b3fc9cb28327376abd2f787b043b47b9d143ecf29e7a
+      DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/aff_thread_test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply database schema
+        run: npm run db:push
+
+      - name: Run automated test suite
+        run: npm run test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build

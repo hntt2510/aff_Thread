@@ -3,19 +3,22 @@ import { jwtVerify } from "jose";
 
 const SESSION_COOKIE_NAME = "aff_session";
 
-// Public paths that do not require authentication
+// Public endpoints that do not require authentication
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health"];
+
+// Explicitly permitted public static assets
+const PUBLIC_STATIC_FILES = ["/favicon.ico", "/robots.txt", "/sitemap.xml"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow Next.js internals, static files, images
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/static") ||
-    pathname.includes(".") ||
-    pathname === "/favicon.ico"
-  ) {
+  // Allow Next.js internal build assets
+  if (pathname.startsWith("/_next") || req.url.includes("/_next/")) {
+    return NextResponse.next();
+  }
+
+  // Allow explicitly defined public static files
+  if (PUBLIC_STATIC_FILES.includes(pathname)) {
     return NextResponse.next();
   }
 
@@ -69,10 +72,7 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
+     * Match all request paths except _next/static, _next/image, and favicon.ico
      */
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],

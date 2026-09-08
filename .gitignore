@@ -34,11 +34,4 @@ yarn-error.log*
 .idea/
 .vscode/
 
-# Python / legacy files preserved
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/
-instance/
-backups/
-*.har
+

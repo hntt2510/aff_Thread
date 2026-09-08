@@ -48,6 +48,17 @@ describe("Environment Validation", () => {
     expect(() => getEnv()).toThrow("THREADS_TOKEN_ENCRYPTION_KEY must be a 64-character hex string");
   });
 
+  it("throws error when THREADS_TOKEN_ENCRYPTION_KEY contains 64 characters but non-hex", () => {
+    process.env.ADMIN_USERNAME = "admin";
+    process.env.ADMIN_PASSWORD_HASH = "salt:hash";
+    process.env.SESSION_SECRET = "12345678901234567890123456789012";
+    // 64 characters long but includes non-hex characters ('z')
+    process.env.THREADS_TOKEN_ENCRYPTION_KEY = "z".repeat(64);
+    process.env.DATABASE_URL = "postgresql://localhost:5432/db";
+
+    expect(() => getEnv()).toThrow("THREADS_TOKEN_ENCRYPTION_KEY must be a 64-character hex string");
+  });
+
   it("throws error when DATABASE_URL is missing", () => {
     delete process.env.DATABASE_URL;
     process.env.ADMIN_PASSWORD_HASH = "salt:hash";

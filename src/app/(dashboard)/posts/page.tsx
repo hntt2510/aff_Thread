@@ -161,8 +161,13 @@ export default function PostsPage() {
                       </div>
                     )}
                     <div>
-                      <div className="font-semibold text-slate-900 text-sm">
-                        {post.account?.displayName || "Unknown Account"}
+                      <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
+                        <span>{post.account?.displayName || "Unknown Account"}</span>
+                        {post.account?.isDisconnected && (
+                          <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-normal border border-slate-200">
+                            Disconnected
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500">
                         @{post.account?.username || "unknown"}

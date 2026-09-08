@@ -599,7 +599,8 @@ export default function AccountsPage() {
 
             <p className="text-sm text-slate-600">
               Are you sure you want to remove <strong>@{deleteTarget.username}</strong> ({deleteTarget.displayName})?
-              All associated post history will also be removed.
+              Its active credentials will be removed and it will be unavailable for new publishing.
+              All existing post history published by this account will remain safely preserved in your audit logs.
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">

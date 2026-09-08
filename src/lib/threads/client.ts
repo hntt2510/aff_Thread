@@ -31,8 +31,9 @@ export class ThreadsClient {
   private baseUrl = "https://graph.threads.net/v1.0";
 
   /**
-   * Fetches the official profile identity for the provided access token.
-   * Endpoint: GET /me
+   * Fetches official profile identity using HTTP Bearer Authorization.
+   * Endpoint: GET /me?fields=id,username,name,threads_profile_picture_url,threads_biography
+   * Note: The access token is NEVER included in the URL or query parameters.
    */
   async getProfile(accessToken: string): Promise<ThreadsProfile> {
     if (!accessToken || !accessToken.trim()) {
@@ -41,7 +42,6 @@ export class ThreadsClient {
 
     const url = new URL(`${this.baseUrl}/me`);
     url.searchParams.set("fields", "id,username,name,threads_profile_picture_url,threads_biography");
-    url.searchParams.set("access_token", accessToken);
 
     const data = await this.request<{
       id: string;
@@ -51,6 +51,9 @@ export class ThreadsClient {
       threads_biography?: string;
     }>(url.toString(), {
       method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
     });
 
     if (!data.id || !data.username) {
@@ -67,10 +70,15 @@ export class ThreadsClient {
   }
 
   /**
-   * Creates a text container for publishing.
+   * Creates a text container for publishing using HTTP Bearer Authorization.
    * Endpoint: POST /me/threads
+   * Note: The access token is NEVER included in the request body or URL.
    */
   async createTextContainer(accessToken: string, text: string): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+
     if (!text || !text.trim()) {
       throw new ThreadsApiError("API_ERROR", "Text content cannot be empty", 400);
     }
@@ -79,11 +87,13 @@ export class ThreadsClient {
     const params = new URLSearchParams();
     params.set("media_type", "TEXT");
     params.set("text", text);
-    params.set("access_token", accessToken);
 
     const data = await this.request<{ id: string }>(url, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
       body: params.toString(),
     });
 
@@ -95,10 +105,15 @@ export class ThreadsClient {
   }
 
   /**
-   * Publishes a previously created text container.
+   * Publishes a previously created container using HTTP Bearer Authorization.
    * Endpoint: POST /me/threads_publish
+   * Note: The access token is NEVER included in the request body or URL.
    */
   async publishContainer(accessToken: string, creationId: string): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+
     if (!creationId || !creationId.trim()) {
       throw new ThreadsApiError("API_ERROR", "Creation container ID is required", 400);
     }
@@ -106,11 +121,13 @@ export class ThreadsClient {
     const url = `${this.baseUrl}/me/threads_publish`;
     const params = new URLSearchParams();
     params.set("creation_id", creationId);
-    params.set("access_token", accessToken);
 
     const data = await this.request<{ id: string }>(url, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
       body: params.toString(),
     });
 

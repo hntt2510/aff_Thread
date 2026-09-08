@@ -11,20 +11,23 @@ export interface PostWithAccount extends Post {
     username: string;
     displayName: string;
     avatarUrl: string | null;
+    isDisconnected?: boolean;
   } | null;
 }
 
 export class PostService {
   /**
    * Publishes a text post to Threads using the official 2-stage container flow:
-   * 1. Create text container (POST /me/threads)
-   * 2. Publish container (POST /me/threads_publish)
+   * 1. Create text container (POST /me/threads with Authorization: Bearer)
+   * 2. Publish container (POST /me/threads_publish with Authorization: Bearer)
    *
    * Guarantees:
    * - Token decrypted server-side only for the specified accountId
+   * - Immutable snapshot of account identity (username, displayName, threadsUserId) persisted on post
    * - Strict account isolation (Account A uses Token A, Account B uses Token B)
    * - Persistent audit trail of containerId and threadsPostId
    * - Safe error recording without blind duplicate-retry risks
+   * - Preserves post history even if account is later removed/disconnected
    */
   async publishTextPost(accountId: string, rawText: string): Promise<Post> {
     const text = rawText ? rawText.trim() : "";
@@ -47,11 +50,14 @@ export class PostService {
       );
     }
 
-    // Step 1: Create record in database with status PUBLISHING
+    // Step 1: Create record in database with status PUBLISHING and immutable account identity snapshot
     const [initialPost] = await db
       .insert(posts)
       .values({
         accountId,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
         text,
         status: "PUBLISHING",
       })
@@ -128,6 +134,7 @@ export class PostService {
 
   /**
    * Retrieves post history with associated account information.
+   * If the account was removed/disconnected, preserves historical identity snapshot.
    */
   async listPosts(limit = 50): Promise<PostWithAccount[]> {
     const rows = await db
@@ -147,7 +154,21 @@ export class PostService {
 
     return rows.map((r) => ({
       ...r.post,
-      account: r.account,
+      account: r.account?.id
+        ? {
+            id: r.account.id,
+            username: r.account.username,
+            displayName: r.account.displayName,
+            avatarUrl: r.account.avatarUrl,
+            isDisconnected: false,
+          }
+        : {
+            id: r.post.accountId || "",
+            username: r.post.accountUsername,
+            displayName: r.post.accountDisplayName,
+            avatarUrl: null,
+            isDisconnected: true,
+          },
     }));
   }
 }
