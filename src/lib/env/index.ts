@@ -1,0 +1,42 @@
+import { z } from "zod";
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  ADMIN_USERNAME: z.string().min(1).default("admin"),
+  ADMIN_PASSWORD_HASH: z.string({ required_error: "ADMIN_PASSWORD_HASH is required" }).min(1, "ADMIN_PASSWORD_HASH is required"),
+  SESSION_SECRET: z.string({ required_error: "SESSION_SECRET is required" }).min(32, "SESSION_SECRET must be at least 32 characters"),
+  THREADS_TOKEN_ENCRYPTION_KEY: z
+    .string({ required_error: "THREADS_TOKEN_ENCRYPTION_KEY is required" })
+    .length(64, "THREADS_TOKEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)"),
+  DATABASE_URL: z.string({ required_error: "DATABASE_URL is required" }).min(1, "DATABASE_URL is required"),
+});
+
+let cachedEnv: z.infer<typeof envSchema> | null = null;
+
+export function getEnv() {
+  if (cachedEnv) {
+    return cachedEnv;
+  }
+
+  // Ensure this is only called server-side
+  if (typeof window !== "undefined") {
+    throw new Error("Server environment variables cannot be accessed on the client");
+  }
+
+  const result = envSchema.safeParse(process.env);
+
+  if (!result.success) {
+    const errorDetails = result.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join(", ");
+    throw new Error(`Environment validation failed: ${errorDetails}`);
+  }
+
+  cachedEnv = result.data;
+  return cachedEnv;
+}
+
+// Reset cached env (useful for tests)
+export function resetEnvCache() {
+  cachedEnv = null;
+}
