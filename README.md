@@ -140,13 +140,20 @@ During Meta development mode, you can connect tester accounts without full App R
 
 ## Vercel Deployment
 
+> **⚠️ SECURITY — Read before deploying to production**
+>
+> - **Generate `ADMIN_PASSWORD_HASH` locally** using `node scripts/hash-password.mjs <your_password>` on your own machine. Never generate or share your production password in chat, messages, email, or anywhere outside your local terminal.
+> - **Use a strong, unique production password** — at minimum 20 random characters. Never reuse a password that was previously shared in any conversation, chat session, source code, or commit history.
+> - **Only store the resulting hash** (`salt:hash`) in Vercel environment variables. The plain-text password must never leave your terminal.
+> - If you suspect a password has ever been exposed or shared, regenerate it immediately using the script above and redeploy.
+
 1. Push code to your GitHub repository (`hntt2510/aff_Thread`).
 2. In the Vercel dashboard, import the project.
 3. Add the following Environment Variables in Vercel Project Settings:
    - `ADMIN_USERNAME`
-   - `ADMIN_PASSWORD_HASH`
-   - `SESSION_SECRET`
-   - `THREADS_TOKEN_ENCRYPTION_KEY`
+   - `ADMIN_PASSWORD_HASH` (generate locally with `node scripts/hash-password.mjs`)
+   - `SESSION_SECRET` (generate with `node scripts/generate-key.mjs`)
+   - `THREADS_TOKEN_ENCRYPTION_KEY` (generate with `node scripts/generate-key.mjs`)
    - `DATABASE_URL` (pointing to a production serverless PostgreSQL like Neon or Supabase)
 4. Deploy the project.
-5. In production, run migrations against your production database using `npx drizzle-kit push`.
+5. In production, run migrations against your production database using `npm run db:migrate`.
