@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    fileParallelism: false,
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
     exclude: ["node_modules", ".next", ".venv", "community_manager"],

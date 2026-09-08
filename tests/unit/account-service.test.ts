@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AccountService } from "@/services/account.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
 import { db } from "@/db";
-import { threadsAccounts } from "@/db/schema";
+import { threadsAccounts, posts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 describe("AccountService Multi-Account Operations", () => {
@@ -11,7 +11,8 @@ describe("AccountService Multi-Account Operations", () => {
   beforeEach(async () => {
     service = new AccountService();
     vi.restoreAllMocks();
-    // Clean accounts table for tests
+    // Clean tables for tests
+    await db.delete(posts);
     await db.delete(threadsAccounts);
   });
 

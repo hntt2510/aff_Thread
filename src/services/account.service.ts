@@ -180,6 +180,9 @@ export class AccountService {
         .where(eq(threadsAccounts.id, id))
         .returning();
 
+      if (!updated) {
+        throw new Error("Account not found");
+      }
       return this.toSafeAccount(updated);
     }
   }

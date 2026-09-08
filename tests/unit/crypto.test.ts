@@ -19,10 +19,12 @@ describe("AES-256-GCM Token Encryption", () => {
     const rawToken = "my_sample_token";
     const encrypted = encryptToken(rawToken);
 
-    // Tamper ciphertext
+    // Tamper ciphertext guaranteed
+    const lastTwo = encrypted.ciphertext.slice(-2);
+    const replacement = lastTwo === "00" ? "11" : "00";
     const tampered = {
       ...encrypted,
-      ciphertext: encrypted.ciphertext.slice(0, -2) + "00",
+      ciphertext: encrypted.ciphertext.slice(0, -2) + replacement,
     };
 
     expect(() => decryptToken(tampered)).toThrow();
