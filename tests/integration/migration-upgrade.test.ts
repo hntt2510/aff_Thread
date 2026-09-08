@@ -43,8 +43,16 @@ function adaptSql(content: string, schema: string): string {
 async function applyMigration(sql: postgres.Sql, content: string): Promise<void> {
   const statements = content
     .split(/--> statement-breakpoint/g)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+    .map((s) => {
+      // Strip line comments from each statement
+      return s
+        .split("\n")
+        .map((line) => line.replace(/--.*$/, "").trim())
+        .filter((line) => line.length > 0)
+        .join("\n")
+        .trim();
+    })
+    .filter((s) => s.length > 0);
 
   for (const stmt of statements) {
     await sql.unsafe(stmt);

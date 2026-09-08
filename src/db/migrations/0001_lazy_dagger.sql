@@ -1,22 +1,13 @@
--- Migration 0001: Add post-account snapshot columns (safe for existing data)
---
--- Step 1: Drop existing FK (will be re-added with ON DELETE SET NULL)
 ALTER TABLE "posts" DROP CONSTRAINT "posts_account_id_threads_accounts_id_fk";
 --> statement-breakpoint
-
--- Step 2: Make account_id nullable (preserve posts when account is removed)
 ALTER TABLE "posts" ALTER COLUMN "account_id" DROP NOT NULL;
 --> statement-breakpoint
-
--- Step 3: Add snapshot columns as NULLABLE first (safe for existing rows)
 ALTER TABLE "posts" ADD COLUMN "account_threads_user_id" text;
 --> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "account_username" text;
 --> statement-breakpoint
 ALTER TABLE "posts" ADD COLUMN "account_display_name" text;
 --> statement-breakpoint
-
--- Step 4: Backfill snapshot columns from the joined threads_accounts row
 UPDATE "posts" p
 SET
   "account_threads_user_id" = a."threads_user_id",
@@ -26,16 +17,12 @@ FROM "threads_accounts" a
 WHERE p."account_id" = a."id"
   AND p."account_threads_user_id" IS NULL;
 --> statement-breakpoint
-
--- Step 5: Set NOT NULL now that every existing row has been backfilled
 ALTER TABLE "posts" ALTER COLUMN "account_threads_user_id" SET NOT NULL;
 --> statement-breakpoint
 ALTER TABLE "posts" ALTER COLUMN "account_username" SET NOT NULL;
 --> statement-breakpoint
 ALTER TABLE "posts" ALTER COLUMN "account_display_name" SET NOT NULL;
 --> statement-breakpoint
-
--- Step 6: Re-add FK with ON DELETE SET NULL so posts survive account removal
 ALTER TABLE "posts" ADD CONSTRAINT "posts_account_id_threads_accounts_id_fk"
   FOREIGN KEY ("account_id") REFERENCES "public"."threads_accounts"("id")
   ON DELETE set null ON UPDATE no action;
