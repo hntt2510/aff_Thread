@@ -4,6 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { accountService } from "./account.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
 import { sanitizeErrorMessage } from "@/lib/errors/sanitizer";
+import { ensureDatabaseSchema } from "@/db/migrate";
 
 export interface PostWithAccount extends Post {
   account: {
@@ -30,6 +31,7 @@ export class PostService {
    * - Preserves post history even if account is later removed/disconnected
    */
   async publishTextPost(accountId: string, rawText: string): Promise<Post> {
+    await ensureDatabaseSchema();
     const text = rawText ? rawText.trim() : "";
 
     if (!text) {
@@ -137,6 +139,7 @@ export class PostService {
    * If the account was removed/disconnected, preserves historical identity snapshot.
    */
   async listPosts(limit = 50): Promise<PostWithAccount[]> {
+    await ensureDatabaseSchema();
     const rows = await db
       .select({
         post: posts,

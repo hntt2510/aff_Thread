@@ -3,6 +3,7 @@ import { threadsAccounts, ThreadsAccount } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { encryptToken, decryptToken } from "@/lib/crypto/tokens";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
+import { ensureDatabaseSchema } from "@/db/migrate";
 
 export type SafeAccount = Omit<
   ThreadsAccount,
@@ -28,6 +29,7 @@ export class AccountService {
    * Step 2: Persist new verified account. Enforces uniqueness.
    */
   async addAccount(accessToken: string): Promise<SafeAccount> {
+    await ensureDatabaseSchema();
     const identity = await this.verifyToken(accessToken);
 
     // Check if account already exists
@@ -67,6 +69,7 @@ export class AccountService {
    * List all accounts safely without exposing token components.
    */
   async listAccounts(): Promise<SafeAccount[]> {
+    await ensureDatabaseSchema();
     const accounts = await db
       .select({
         id: threadsAccounts.id,
@@ -90,6 +93,7 @@ export class AccountService {
    * Decrypts token for a specific account. Server-side only!
    */
   async getDecryptedTokenForAccount(id: string): Promise<{ token: string; account: SafeAccount }> {
+    await ensureDatabaseSchema();
     const [account] = await db
       .select()
       .from(threadsAccounts)
@@ -113,6 +117,7 @@ export class AccountService {
    * Runs a health check on an existing account by verifying token validity against Meta.
    */
   async checkAccount(id: string): Promise<SafeAccount> {
+    await ensureDatabaseSchema();
     const [account] = await db
       .select()
       .from(threadsAccounts)
@@ -191,6 +196,7 @@ export class AccountService {
    * Replace token for an existing account. Strictly verifies identity matches stored account.
    */
   async replaceToken(id: string, newToken: string): Promise<SafeAccount> {
+    await ensureDatabaseSchema();
     const [account] = await db
       .select()
       .from(threadsAccounts)
@@ -239,6 +245,7 @@ export class AccountService {
    * Remove account permanently.
    */
   async removeAccount(id: string): Promise<void> {
+    await ensureDatabaseSchema();
     await db.delete(threadsAccounts).where(eq(threadsAccounts.id, id));
   }
 

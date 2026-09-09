@@ -7,7 +7,7 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 
 describe("Authentication Integration Flow", () => {
   const validUsername = "admin";
-  const validPassword = "admin_secret_pass_2026";
+  const validPassword = "Anhlaso1@";
 
   it("rejects login with wrong username", async () => {
     const req = new NextRequest("http://localhost:3000/api/auth/login", {
