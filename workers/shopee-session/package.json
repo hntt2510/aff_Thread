@@ -1,0 +1,25 @@
+{
+  "name": "shopee-session-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shopee Affiliate Session Worker for interactive login, catalog acquisition, and link resolution",
+  "type": "module",
+  "scripts": {
+    "login": "tsx src/cli/login.ts",
+    "status": "tsx src/cli/status.ts",
+    "weekly": "tsx src/cli/weekly.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "playwright": "^1.50.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

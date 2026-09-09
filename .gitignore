@@ -34,5 +34,12 @@ yarn-error.log*
 .idea/
 .vscode/
 
+# Local Worker & Session storage (strictly ignored)
+.local/
+worker-data/
+workers/**/.local/
+workers/**/worker-data/
+workers/**/.env*
+!workers/**/.env.example
 
 .env*

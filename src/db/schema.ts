@@ -492,5 +492,30 @@ export type NewWeeklyProductPoolItem = typeof weeklyProductPool.$inferInsert;
 export type ProductDealObservation = typeof productDealObservations.$inferSelect;
 export type NewProductDealObservation = typeof productDealObservations.$inferInsert;
 
+export type ShopeeAcquisitionStatus = "PENDING" | "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED";
 
+export const shopeeAcquisitionRuns = pgTable("shopee_acquisition_runs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  externalRunId: text("external_run_id"),
+  acquisitionBatchId: text("acquisition_batch_id").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  provider: text("provider").notNull().default("SHOPEE"),
+  status: text("status").$type<ShopeeAcquisitionStatus>().notNull().default("PENDING"),
+  productsSeen: integer("products_seen").notNull().default(0),
+  productsValid: integer("products_valid").notNull().default(0),
+  productsImported: integer("products_imported").notNull().default(0),
+  productsRejected: integer("products_rejected").notNull().default(0),
+  warningCount: integer("warning_count").notNull().default(0),
+  source: text("source").notNull().default("SHOPEE_SESSION_WORKER"),
+  errorSummary: text("error_summary"),
+  rawMetadataJson: text("raw_metadata_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("shopee_acq_batch_id_idx").on(table.acquisitionBatchId),
+  index("shopee_acq_status_idx").on(table.status),
+  index("shopee_acq_created_at_idx").on(table.createdAt),
+]);
 
+export type ShopeeAcquisitionRun = typeof shopeeAcquisitionRuns.$inferSelect;
+export type NewShopeeAcquisitionRun = typeof shopeeAcquisitionRuns.$inferInsert;

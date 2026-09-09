@@ -184,5 +184,17 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"weekly_product_pool_week_product_idx\" ON \"weekly_product_pool\" USING btree (\"week_start\",\"product_id\");",
       "CREATE INDEX \"affiliate_replies_next_eligible_idx\" ON \"affiliate_replies\" USING btree (\"next_eligible_at\");"
     ]
+  },
+  {
+    "tag": "0007_conscious_orphan",
+    "folderMillis": 1788963264507,
+    "bps": true,
+    "hash": "019019e3e9b6d8ebd678624f541f4892acdb4e144002aa3b8fda3ecbe8f2562f",
+    "sql": [
+      "CREATE TABLE \"shopee_acquisition_runs\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"external_run_id\" text,\n\t\"acquisition_batch_id\" text NOT NULL,\n\t\"started_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"completed_at\" timestamp with time zone,\n\t\"provider\" text DEFAULT 'SHOPEE' NOT NULL,\n\t\"status\" text DEFAULT 'PENDING' NOT NULL,\n\t\"products_seen\" integer DEFAULT 0 NOT NULL,\n\t\"products_valid\" integer DEFAULT 0 NOT NULL,\n\t\"products_imported\" integer DEFAULT 0 NOT NULL,\n\t\"products_rejected\" integer DEFAULT 0 NOT NULL,\n\t\"warning_count\" integer DEFAULT 0 NOT NULL,\n\t\"source\" text DEFAULT 'SHOPEE_SESSION_WORKER' NOT NULL,\n\t\"error_summary\" text,\n\t\"raw_metadata_json\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE INDEX \"shopee_acq_batch_id_idx\" ON \"shopee_acquisition_runs\" USING btree (\"acquisition_batch_id\");",
+      "CREATE INDEX \"shopee_acq_status_idx\" ON \"shopee_acquisition_runs\" USING btree (\"status\");",
+      "CREATE INDEX \"shopee_acq_created_at_idx\" ON \"shopee_acquisition_runs\" USING btree (\"created_at\");"
+    ]
   }
 ];

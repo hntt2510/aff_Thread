@@ -76,4 +76,15 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('CREATE TABLE "product_deal_observations"');
     expect(allStatements).toContain('ALTER TABLE "affiliate_replies" ADD COLUMN "next_eligible_at"');
   });
+
+  it("includes migration 0007 with Shopee Acquisition Runs audit table", () => {
+    const mig0007 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0007_conscious_orphan");
+    expect(mig0007).toBeDefined();
+
+    const allStatements = mig0007!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "shopee_acquisition_runs"');
+    expect(allStatements).toContain('acquisition_batch_id');
+    expect(allStatements).toContain('products_imported');
+    expect(allStatements).toContain('source');
+  });
 });

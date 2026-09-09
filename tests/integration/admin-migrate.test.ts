@@ -22,9 +22,11 @@ describe("Admin Schema Migration and Inspection", () => {
     expect(result.is0004Applied).toBe(true);
     expect(result.is0005Applied).toBe(true);
     expect(result.is0006Applied).toBe(true);
+    expect(result.is0007Applied).toBe(true);
     expect(typeof result.schemaObjects.affiliateProductsTable).toBe("boolean");
     expect(typeof result.schemaObjects.weeklyProductPoolTable).toBe("boolean");
     expect(typeof result.schemaObjects.productDealObservationsTable).toBe("boolean");
+    expect(typeof result.schemaObjects.shopeeAcquisitionRunsTable).toBe("boolean");
   });
 
   it("is idempotent when running ensureDatabaseSchema repeatedly", async () => {
@@ -36,5 +38,6 @@ describe("Admin Schema Migration and Inspection", () => {
     expect(after.is0004Applied).toBe(true);
     expect(after.is0005Applied).toBe(true);
     expect(after.is0006Applied).toBe(true);
+    expect(after.is0007Applied).toBe(true);
   });
 });

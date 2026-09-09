@@ -30,6 +30,7 @@ import {
   Calendar,
   Eye,
   Loader2,
+  Radio,
 } from "lucide-react";
 
 interface ProductItem {
@@ -160,6 +161,28 @@ function ShopeeDealsContent() {
   const [validatingCsv, setValidatingCsv] = useState(false);
   const [confirmingImport, setConfirmingImport] = useState(false);
 
+  // Shopee Worker Acquisition Audit State
+  const [acquisitionData, setAcquisitionData] = useState<{
+    lastRun: {
+      id: string;
+      externalRunId: string | null;
+      acquisitionBatchId: string;
+      startedAt: string;
+      completedAt: string | null;
+      provider: string;
+      status: string;
+      productsSeen: number;
+      productsValid: number;
+      productsImported: number;
+      productsRejected: number;
+      warningCount: number;
+      source: string;
+      errorSummary: string | null;
+    } | null;
+    recentRuns: any[];
+  } | null>(null);
+  const [loadingAcquisition, setLoadingAcquisition] = useState(false);
+
   // Helpers
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -237,7 +260,23 @@ function ShopeeDealsContent() {
     }
   }, [selectedPostId]);
 
+  const fetchAcquisitionStatus = useCallback(async () => {
+    try {
+      setLoadingAcquisition(true);
+      const res = await fetch("/api/shopee/acquisition?limit=5");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAcquisitionData(data);
+      }
+    } catch {
+      // best-effort
+    } finally {
+      setLoadingAcquisition(false);
+    }
+  }, []);
+
   useEffect(() => {
+    fetchAcquisitionStatus();
     if (activeTab === "WEEKLY_POOL") fetchWeeklyPool();
     if (activeTab === "PRODUCTS") fetchProducts();
     if (activeTab === "DEALS") {
@@ -248,7 +287,7 @@ function ShopeeDealsContent() {
       fetchPublishedPosts();
       fetchWeeklyPool();
     }
-  }, [activeTab, fetchWeeklyPool, fetchProducts, fetchDeals, fetchPublishedPosts]);
+  }, [activeTab, fetchWeeklyPool, fetchProducts, fetchDeals, fetchPublishedPosts, fetchAcquisitionStatus]);
 
   // --- Handlers ---
   const handleGeneratePool = async () => {
@@ -535,6 +574,89 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           <div className="flex-1">{error}</div>
         </div>
       )}
+
+      {/* Shopee Session Worker Acquisition Status */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-orange-600" />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-700">Catalog Acquisition Status</span>
+            {acquisitionData?.lastRun ? (
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  acquisitionData.lastRun.status === "SUCCESS"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : acquisitionData.lastRun.status === "PARTIAL"
+                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                    : "bg-rose-50 text-rose-700 border border-rose-200"
+                }`}
+              >
+                {acquisitionData.lastRun.status}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600">
+                NO DATA
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>Source: <strong className="text-slate-700">{acquisitionData?.lastRun?.source || "Shopee Session Worker"}</strong></span>
+            <button
+              onClick={fetchAcquisitionStatus}
+              disabled={loadingAcquisition}
+              className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+              title="Refresh Acquisition Status"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingAcquisition ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+          <div>
+            <span className="text-slate-400 text-[11px] block">Last Acquisition:</span>
+            <span className="font-semibold text-slate-800">
+              {acquisitionData?.lastRun?.startedAt
+                ? new Date(acquisitionData.lastRun.startedAt).toLocaleString("vi-VN")
+                : "Unavailable"}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-[11px] block">Last Completed:</span>
+            <span className="font-semibold text-slate-800">
+              {acquisitionData?.lastRun?.completedAt
+                ? new Date(acquisitionData.lastRun.completedAt).toLocaleString("vi-VN")
+                : "—"}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-[11px] block">Products Seen:</span>
+            <span className="font-semibold text-slate-800">
+              {acquisitionData?.lastRun?.productsSeen ?? "—"}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-[11px] block">Products Imported:</span>
+            <span className="font-semibold text-emerald-700">
+              {acquisitionData?.lastRun?.productsImported ?? "—"}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-[11px] block">Warnings / Rejected:</span>
+            <span className="font-semibold text-slate-700">
+              {acquisitionData?.lastRun
+                ? `${acquisitionData.lastRun.warningCount} / ${acquisitionData.lastRun.productsRejected}`
+                : "—"}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-[11px] block">Weekly Pool Size:</span>
+            <span className="font-semibold text-orange-600">
+              {poolItems.length} items
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 pb-2 text-xs sm:text-sm font-medium">

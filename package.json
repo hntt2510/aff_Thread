@@ -13,7 +13,11 @@
     "db:generate": "drizzle-kit generate",
     "db:bundle": "node scripts/bundle-migrations.mjs",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "shopee:login": "npm run --prefix workers/shopee-session login",
+    "shopee:status": "npm run --prefix workers/shopee-session status",
+    "shopee:weekly": "npm run --prefix workers/shopee-session weekly",
+    "test:worker": "npm run --prefix workers/shopee-session test"
   },
   "dependencies": {
     "cloudinary": "^2.11.0",

@@ -1,0 +1,8 @@
+node_modules/
+.local/
+worker-data/
+.env
+.env.*
+!.env.example
+*.log
+dist/
