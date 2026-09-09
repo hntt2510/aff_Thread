@@ -11,10 +11,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
+    "db:bundle": "node scripts/bundle-migrations.mjs",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "cloudinary": "^2.11.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "jose": "^5.9.6",

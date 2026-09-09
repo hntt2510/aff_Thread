@@ -29,6 +29,18 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  CLOUDINARY_CLOUD_NAME: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  CLOUDINARY_API_KEY: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  CLOUDINARY_API_SECRET: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
 });
 
 let cachedEnv: z.infer<typeof envSchema> | null = null;

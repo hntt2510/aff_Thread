@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       durationMs: Date.now() - start,
       before,
       after,
-      verified: after.allObjectsExist && after.is0003Applied,
+      verified: after.allObjectsExist && after.is0003Applied && after.is0004Applied,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

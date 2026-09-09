@@ -114,6 +114,7 @@ export class PostService {
             sourceUrl: item.sourceUrl,
             position: item.position ?? 0,
             altText: item.altText,
+            mediaAssetId: item.mediaAssetId || null,
           })
           .returning();
         savedMedia.push(saved);
@@ -254,6 +255,7 @@ export class PostService {
           sourceUrl: item.sourceUrl,
           position: item.position ?? 0,
           altText: item.altText,
+          mediaAssetId: item.mediaAssetId || null,
         });
       }
     }

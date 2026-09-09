@@ -13,6 +13,7 @@ import {
   X,
   Share2,
   Link2,
+  Image as ImageIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { label: "Create Post", href: "/create", icon: PenSquare },
   { label: "Posts", href: "/posts", icon: History },
   { label: "Affiliate", href: "/affiliate", icon: Link2 },
+  { label: "Media", href: "/media", icon: ImageIcon },
 ];
 
 export default function Navbar() {

@@ -41,4 +41,13 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "media_type"');
     expect(allStatements).toContain('ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "processing_status"');
   });
+
+  it("includes migration 0004 with media_assets and media_asset_id", () => {
+    const mig0004 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0004_demonic_monster_badoon");
+    expect(mig0004).toBeDefined();
+
+    const allStatements = mig0004!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "media_assets"');
+    expect(allStatements).toContain('ALTER TABLE "post_media" ADD COLUMN "media_asset_id"');
+  });
 });

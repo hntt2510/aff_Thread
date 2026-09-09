@@ -89,5 +89,22 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"post_media_position_idx\" ON \"post_media\" USING btree (\"post_id\",\"position\");",
       "CREATE INDEX \"scheduler_runs_started_at_idx\" ON \"scheduler_runs\" USING btree (\"started_at\");"
     ]
+  },
+  {
+    "tag": "0004_demonic_monster_badoon",
+    "folderMillis": 1788948165485,
+    "bps": true,
+    "hash": "c93eda6979f117e35baaf9aa165f3c7e4d1fe1e733ae94c08c9a9e37e0ea8584",
+    "sql": [
+      "CREATE TABLE \"media_assets\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"account_id\" text,\n\t\"storage_provider\" text DEFAULT 'CLOUDINARY' NOT NULL,\n\t\"public_id\" text NOT NULL,\n\t\"resource_type\" text NOT NULL,\n\t\"secure_url\" text NOT NULL,\n\t\"original_filename\" text,\n\t\"bytes\" integer,\n\t\"width\" integer,\n\t\"height\" integer,\n\t\"format\" text,\n\t\"duration_seconds\" integer,\n\t\"upload_status\" text DEFAULT 'READY' NOT NULL,\n\t\"deleted_at\" timestamp with time zone,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"media_assets_public_id_unique\" UNIQUE(\"public_id\")\n);",
+      "ALTER TABLE \"post_media\" ADD COLUMN \"media_asset_id\" text;",
+      "ALTER TABLE \"media_assets\" ADD CONSTRAINT \"media_assets_account_id_threads_accounts_id_fk\" FOREIGN KEY (\"account_id\") REFERENCES \"public\".\"threads_accounts\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "CREATE INDEX \"media_assets_public_id_idx\" ON \"media_assets\" USING btree (\"public_id\");",
+      "CREATE INDEX \"media_assets_resource_type_idx\" ON \"media_assets\" USING btree (\"resource_type\");",
+      "CREATE INDEX \"media_assets_created_at_idx\" ON \"media_assets\" USING btree (\"created_at\");",
+      "CREATE INDEX \"media_assets_deleted_at_idx\" ON \"media_assets\" USING btree (\"deleted_at\");",
+      "ALTER TABLE \"post_media\" ADD CONSTRAINT \"post_media_media_asset_id_media_assets_id_fk\" FOREIGN KEY (\"media_asset_id\") REFERENCES \"public\".\"media_assets\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "CREATE INDEX \"post_media_asset_id_idx\" ON \"post_media\" USING btree (\"media_asset_id\");"
+    ]
   }
 ];

@@ -87,6 +87,19 @@ export class AccountService {
   }
 
   /**
+   * Retrieves a single account safely by ID without token components.
+   */
+  async getAccount(id: string): Promise<SafeAccount | null> {
+    const [account] = await db
+      .select()
+      .from(threadsAccounts)
+      .where(eq(threadsAccounts.id, id))
+      .limit(1);
+
+    return account ? this.toSafeAccount(account) : null;
+  }
+
+  /**
    * Decrypts token for a specific account. Server-side only!
    */
   async getDecryptedTokenForAccount(id: string): Promise<{ token: string; account: SafeAccount }> {

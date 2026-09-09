@@ -8,10 +8,13 @@ import { BUNDLED_MIGRATIONS } from "./migrations-bundle";
 export interface SchemaInspectionResult {
   appliedMigrations: Array<{ id: number; hash: string; created_at: string }>;
   is0003Applied: boolean;
+  is0004Applied: boolean;
   schemaObjects: {
     postsMediaType: boolean;
     postsProcessingStatus: boolean;
     postMediaTable: boolean;
+    postMediaAssetIdColumn: boolean;
+    mediaAssetsTable: boolean;
     affiliateCampaignsTable: boolean;
     affiliateLinksTable: boolean;
     postAffiliateLinksTable: boolean;
@@ -53,11 +56,22 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     postsColumns = [];
   }
 
-  // 3. Inspect target tables (post_media, affiliate_campaigns, affiliate_links, post_affiliate_links, affiliate_clicks, scheduler_runs)
+  // 3. Inspect post_media columns (media_asset_id)
+  let postMediaColumns: string[] = [];
+  try {
+    const pmColRows = await db.execute(
+      sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'post_media' AND column_name = 'media_asset_id'`
+    );
+    postMediaColumns = (pmColRows as unknown as Array<{ column_name: string }>).map((r) => r.column_name);
+  } catch {
+    postMediaColumns = [];
+  }
+
+  // 4. Inspect target tables (post_media, media_assets, affiliate_campaigns, affiliate_links, post_affiliate_links, affiliate_clicks, scheduler_runs)
   let existingTables: string[] = [];
   try {
     const tableRows = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('post_media', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs')`
+      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('post_media', 'media_assets', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs')`
     );
     existingTables = (tableRows as unknown as Array<{ table_name: string }>).map((r) => r.table_name);
   } catch {
@@ -67,6 +81,8 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   const postsMediaType = postsColumns.includes("media_type");
   const postsProcessingStatus = postsColumns.includes("processing_status");
   const postMediaTable = existingTables.includes("post_media");
+  const postMediaAssetIdColumn = postMediaColumns.includes("media_asset_id");
+  const mediaAssetsTable = existingTables.includes("media_assets");
   const affiliateCampaignsTable = existingTables.includes("affiliate_campaigns");
   const affiliateLinksTable = existingTables.includes("affiliate_links");
   const postAffiliateLinksTable = existingTables.includes("post_affiliate_links");
@@ -77,10 +93,16 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     (m) => m.created_at === "1788942355838" || m.hash.startsWith("d6a4cc0d")
   );
 
+  const is0004Applied = appliedMigrations.some(
+    (m) => m.created_at === "1788948165485"
+  );
+
   const allObjectsExist =
     postsMediaType &&
     postsProcessingStatus &&
     postMediaTable &&
+    postMediaAssetIdColumn &&
+    mediaAssetsTable &&
     affiliateCampaignsTable &&
     affiliateLinksTable &&
     postAffiliateLinksTable &&
@@ -90,10 +112,13 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   return {
     appliedMigrations,
     is0003Applied,
+    is0004Applied,
     schemaObjects: {
       postsMediaType,
       postsProcessingStatus,
       postMediaTable,
+      postMediaAssetIdColumn,
+      mediaAssetsTable,
       affiliateCampaignsTable,
       affiliateLinksTable,
       postAffiliateLinksTable,

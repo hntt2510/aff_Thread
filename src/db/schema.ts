@@ -64,9 +64,35 @@ export const posts = pgTable("posts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const mediaAssets = pgTable("media_assets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  accountId: text("account_id")
+    .references(() => threadsAccounts.id, { onDelete: "set null" }),
+  storageProvider: text("storage_provider").notNull().default("CLOUDINARY"),
+  publicId: text("public_id").notNull().unique(),
+  resourceType: text("resource_type").notNull(), // "image" | "video"
+  secureUrl: text("secure_url").notNull(),
+  originalFilename: text("original_filename"),
+  bytes: integer("bytes"),
+  width: integer("width"),
+  height: integer("height"),
+  format: text("format"),
+  durationSeconds: integer("duration_seconds"),
+  uploadStatus: text("upload_status").notNull().default("READY"), // "UPLOADING" | "READY" | "FAILED" | "DELETED"
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("media_assets_public_id_idx").on(table.publicId),
+  index("media_assets_resource_type_idx").on(table.resourceType),
+  index("media_assets_created_at_idx").on(table.createdAt),
+  index("media_assets_deleted_at_idx").on(table.deletedAt),
+]);
+
 export const postMedia = pgTable("post_media", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  mediaAssetId: text("media_asset_id").references(() => mediaAssets.id, { onDelete: "set null" }),
   mediaKind: text("media_kind").notNull(), // "IMAGE" | "VIDEO"
   sourceUrl: text("source_url").notNull(),
   position: integer("position").notNull().default(0),
@@ -76,6 +102,7 @@ export const postMedia = pgTable("post_media", {
 }, (table) => [
   index("post_media_post_id_idx").on(table.postId),
   index("post_media_position_idx").on(table.postId, table.position),
+  index("post_media_asset_id_idx").on(table.mediaAssetId),
 ]);
 
 export const affiliateCampaigns = pgTable("affiliate_campaigns", {
@@ -152,6 +179,9 @@ export const schedulerRuns = pgTable("scheduler_runs", {
 
 export type ThreadsAccount = typeof threadsAccounts.$inferSelect;
 export type NewThreadsAccount = typeof threadsAccounts.$inferInsert;
+
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type NewMediaAsset = typeof mediaAssets.$inferInsert;
 
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;

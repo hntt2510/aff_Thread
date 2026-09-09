@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   PenSquare,
   Send,
@@ -11,8 +12,9 @@ import {
   RefreshCw,
   Users,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   Clock,
-  Globe,
   Type,
   Image as ImageIcon,
   Video as VideoIcon,
@@ -20,17 +22,22 @@ import {
   Plus,
   Trash2,
   Link2,
-  ExternalLink,
+  FolderOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { SafeAccount } from "@/services/account.service";
 import type { PostMediaType } from "@/lib/posts/lifecycle";
 import type { MediaItemInput } from "@/lib/media/types";
+import type { MediaAsset } from "@/db/schema";
 import {
   parseLocalDateTimeToUtc,
   validateScheduledTime,
   formatInTimezone,
   DEFAULT_TIMEZONE,
 } from "@/lib/date/timezone";
+import MediaUploader, { formatBytes } from "@/components/media/MediaUploader";
+import MediaLibraryModal from "@/components/media/MediaLibraryModal";
 
 interface AffiliateLinkOption {
   id: string;
@@ -40,7 +47,21 @@ interface AffiliateLinkOption {
   network: string | null;
 }
 
-export default function CreatePostPage() {
+interface CarouselSlideState {
+  id: string;
+  mediaKind: "IMAGE" | "VIDEO";
+  sourceUrl: string;
+  altText: string;
+  mediaAssetId?: string;
+  asset?: MediaAsset | null;
+  isUploading?: boolean;
+  inputMode: "upload" | "url";
+}
+
+function CreatePostForm() {
+  const searchParams = useSearchParams();
+  const initialAssetId = searchParams.get("mediaAssetId");
+
   const [accounts, setAccounts] = useState<SafeAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
@@ -48,17 +69,46 @@ export default function CreatePostPage() {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"now" | "schedule">("now");
 
-  // Media inputs
+  // Single Image State
+  const [imageAsset, setImageAsset] = useState<MediaAsset | null>(null);
   const [singleImageUrl, setSingleImageUrl] = useState("");
   const [singleImageAlt, setSingleImageAlt] = useState("");
+  const [isImageUploading, setIsImageUploading] = useState(false);
+  const [showManualImageUrl, setShowManualImageUrl] = useState(false);
 
+  // Single Video State
+  const [videoAsset, setVideoAsset] = useState<MediaAsset | null>(null);
   const [singleVideoUrl, setSingleVideoUrl] = useState("");
   const [singleVideoAlt, setSingleVideoAlt] = useState("");
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  const [showManualVideoUrl, setShowManualVideoUrl] = useState(false);
 
-  const [carouselItems, setCarouselItems] = useState<MediaItemInput[]>([
-    { mediaKind: "IMAGE", sourceUrl: "", altText: "" },
-    { mediaKind: "IMAGE", sourceUrl: "", altText: "" },
+  // Carousel State (2 to 10 items)
+  const [carouselItems, setCarouselItems] = useState<CarouselSlideState[]>([
+    {
+      id: "slide-1",
+      mediaKind: "IMAGE",
+      sourceUrl: "",
+      altText: "",
+      inputMode: "upload",
+    },
+    {
+      id: "slide-2",
+      mediaKind: "IMAGE",
+      sourceUrl: "",
+      altText: "",
+      inputMode: "upload",
+    },
   ]);
+
+  // Media Library Modal
+  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
+  const [libraryTarget, setLibraryTarget] = useState<
+    | { type: "single_image" }
+    | { type: "single_video" }
+    | { type: "carousel"; index: number }
+    | null
+  >(null);
 
   // Affiliate links helper
   const [affiliateLinks, setAffiliateLinks] = useState<AffiliateLinkOption[]>([]);
@@ -78,8 +128,8 @@ export default function CreatePostPage() {
     mediaType?: string;
   } | null>(null);
 
+  // Load accounts and affiliate links
   useEffect(() => {
-    // Set default date to tomorrow in local format
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const yyyy = tomorrow.getFullYear();
@@ -118,32 +168,120 @@ export default function CreatePostPage() {
     fetchData();
   }, []);
 
+  // Prepopulate media asset if query param ?mediaAssetId=xyz is present
+  useEffect(() => {
+    if (!initialAssetId) return;
+
+    async function loadInitialAsset() {
+      try {
+        const res = await fetch(`/api/media/${initialAssetId}`);
+        const data = await res.json();
+        if (res.ok && data.success && data.asset) {
+          const asset: MediaAsset = data.asset;
+          if (asset.resourceType === "video") {
+            setMediaType("VIDEO");
+            setVideoAsset(asset);
+            setSingleVideoUrl(asset.secureUrl);
+          } else {
+            setMediaType("IMAGE");
+            setImageAsset(asset);
+            setSingleImageUrl(asset.secureUrl);
+          }
+        }
+      } catch {
+        // Fallback silently if asset cannot be pre-fetched
+      }
+    }
+
+    loadInitialAsset();
+  }, [initialAssetId]);
+
   const charCount = text.length;
   const isOverLimit = charCount > 500;
   const activeAccounts = accounts.filter((a) => a.status === "ACTIVE");
 
-  // Carousel handlers
+  // Any media currently uploading?
+  const isAnyUploading =
+    isImageUploading ||
+    isVideoUploading ||
+    carouselItems.some((item) => item.isUploading);
+
+  // Carousel Handlers
   const handleAddCarouselItem = () => {
     if (carouselItems.length >= 10) return;
-    setCarouselItems([
-      ...carouselItems,
-      { mediaKind: "IMAGE", sourceUrl: "", altText: "" },
+    setCarouselItems((prev) => [
+      ...prev,
+      {
+        id: `slide-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        mediaKind: "IMAGE",
+        sourceUrl: "",
+        altText: "",
+        inputMode: "upload",
+      },
     ]);
   };
 
   const handleRemoveCarouselItem = (index: number) => {
     if (carouselItems.length <= 2) return;
-    setCarouselItems(carouselItems.filter((_, i) => i !== index));
+    setCarouselItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleUpdateCarouselItem = (
+  const handleMoveCarouselItem = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= carouselItems.length) return;
+
+    setCarouselItems((prev) => {
+      const next = [...prev];
+      const temp = next[index];
+      next[index] = next[targetIndex];
+      next[targetIndex] = temp;
+      return next;
+    });
+  };
+
+  const handleUpdateCarouselSlide = (
     index: number,
-    field: keyof MediaItemInput,
-    val: string
+    updates: Partial<CarouselSlideState>
   ) => {
-    const updated = [...carouselItems];
-    updated[index] = { ...updated[index], [field]: val };
-    setCarouselItems(updated);
+    setCarouselItems((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...updates };
+      return next;
+    });
+  };
+
+  // Open Media Library Modal
+  const handleOpenLibrary = (
+    target:
+      | { type: "single_image" }
+      | { type: "single_video" }
+      | { type: "carousel"; index: number }
+  ) => {
+    setLibraryTarget(target);
+    setLibraryModalOpen(true);
+  };
+
+  const handleSelectFromLibrary = (asset: MediaAsset) => {
+    if (!libraryTarget) return;
+
+    if (libraryTarget.type === "single_image") {
+      setImageAsset(asset);
+      setSingleImageUrl(asset.secureUrl);
+    } else if (libraryTarget.type === "single_video") {
+      setVideoAsset(asset);
+      setSingleVideoUrl(asset.secureUrl);
+    } else if (libraryTarget.type === "carousel") {
+      const idx = libraryTarget.index;
+      handleUpdateCarouselSlide(idx, {
+        asset,
+        mediaAssetId: asset.id,
+        sourceUrl: asset.secureUrl,
+        mediaKind: asset.resourceType === "video" ? "VIDEO" : "IMAGE",
+      });
+    }
+
+    setLibraryModalOpen(false);
+    setLibraryTarget(null);
   };
 
   // Insert affiliate link into text
@@ -159,7 +297,7 @@ export default function CreatePostPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || isAnyUploading) return;
 
     if (!selectedAccountId) {
       setError("Please select a Threads account to publish with");
@@ -181,7 +319,7 @@ export default function CreatePostPage() {
 
     if (mediaType === "IMAGE") {
       if (!singleImageUrl.trim()) {
-        setError("Please provide a valid image URL");
+        setError("Please upload an image or provide a valid image URL");
         return;
       }
       payloadMediaItems = [
@@ -189,11 +327,12 @@ export default function CreatePostPage() {
           mediaKind: "IMAGE",
           sourceUrl: singleImageUrl.trim(),
           altText: singleImageAlt.trim() || undefined,
+          mediaAssetId: imageAsset?.id,
         },
       ];
     } else if (mediaType === "VIDEO") {
       if (!singleVideoUrl.trim()) {
-        setError("Please provide a valid video URL");
+        setError("Please upload a video or provide a valid video URL");
         return;
       }
       payloadMediaItems = [
@@ -201,6 +340,7 @@ export default function CreatePostPage() {
           mediaKind: "VIDEO",
           sourceUrl: singleVideoUrl.trim(),
           altText: singleVideoAlt.trim() || undefined,
+          mediaAssetId: videoAsset?.id,
         },
       ];
     } else if (mediaType === "CAROUSEL") {
@@ -210,15 +350,16 @@ export default function CreatePostPage() {
       }
       for (let i = 0; i < carouselItems.length; i++) {
         if (!carouselItems[i].sourceUrl.trim()) {
-          setError(`Carousel item #${i + 1} is missing a source URL`);
+          setError(`Carousel slide #${i + 1} is missing a media attachment or URL`);
           return;
         }
       }
       payloadMediaItems = carouselItems.map((item, i) => ({
         mediaKind: item.mediaKind,
         sourceUrl: item.sourceUrl.trim(),
-        altText: item.altText?.trim() || undefined,
+        altText: item.altText.trim() || undefined,
         position: i,
+        mediaAssetId: item.mediaAssetId || item.asset?.id,
       }));
     }
 
@@ -272,7 +413,27 @@ export default function CreatePostPage() {
         setSuccessPost(data.post);
         setText("");
         setSingleImageUrl("");
+        setSingleImageAlt("");
+        setImageAsset(null);
         setSingleVideoUrl("");
+        setSingleVideoAlt("");
+        setVideoAsset(null);
+        setCarouselItems([
+          {
+            id: `slide-${Date.now()}-1`,
+            mediaKind: "IMAGE",
+            sourceUrl: "",
+            altText: "",
+            inputMode: "upload",
+          },
+          {
+            id: `slide-${Date.now()}-2`,
+            mediaKind: "IMAGE",
+            sourceUrl: "",
+            altText: "",
+            inputMode: "upload",
+          },
+        ]);
       }
     } catch {
       setError("Network error while submitting post. Please check your connection.");
@@ -290,7 +451,7 @@ export default function CreatePostPage() {
           Publishing Workspace
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Publish or schedule multi-format Threads posts (Text, Image, Video, Carousel) with tracked affiliate links
+          Publish or schedule multi-format Threads posts (Text, Image, Video, Carousel) with Cloudinary media ingestion & tracked affiliate links
         </p>
       </div>
 
@@ -311,7 +472,7 @@ export default function CreatePostPage() {
                   <p className="font-semibold">Post scheduled successfully!</p>
                   {successPost.scheduledAt && (
                     <p className="text-xs text-emerald-700 mt-0.5">
-                      Scheduled for: {formatInTimezone(successPost.scheduledAt)} (Asia/Ho_Chi_Minh)
+                      Scheduled for: {formatInTimezone(successPost.scheduledAt)} ({DEFAULT_TIMEZONE})
                     </p>
                   )}
                 </>
@@ -442,145 +603,400 @@ export default function CreatePostPage() {
             </div>
           </div>
 
-          {/* Dynamic Media Inputs */}
+          {/* Dynamic Media Section: IMAGE */}
           {mediaType === "IMAGE" && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Image Attachment
-              </h4>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Public HTTPS Image URL <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/photo-..."
-                  value={singleImageUrl}
-                  onChange={(e) => setSingleImageUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-slate-900"
-                />
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Image Attachment
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => handleOpenLibrary({ type: "single_image" })}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-950 bg-white border border-slate-200 hover:border-slate-300 px-2.5 py-1 rounded-lg transition-colors shadow-2xs"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-500" />
+                  Select from Media Library
+                </button>
               </div>
+
+              {/* Direct Uploader */}
+              <MediaUploader
+                resourceType="image"
+                accountId={selectedAccountId}
+                initialAsset={imageAsset}
+                onUploadStart={() => setIsImageUploading(true)}
+                onUploadComplete={(asset) => {
+                  setImageAsset(asset);
+                  setSingleImageUrl(asset.secureUrl);
+                  setIsImageUploading(false);
+                }}
+                onError={() => setIsImageUploading(false)}
+                onRemove={() => {
+                  setImageAsset(null);
+                  setSingleImageUrl("");
+                }}
+              />
+
+              {/* Alt Text */}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Alt Text (Accessibility)
                 </label>
                 <input
                   type="text"
-                  placeholder="Description of image..."
+                  placeholder="Describe what is in this image..."
                   value={singleImageAlt}
                   onChange={(e) => setSingleImageAlt(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-slate-900"
                 />
               </div>
-              {singleImageUrl && (
-                <div className="mt-2">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Preview:</p>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={singleImageUrl}
-                    alt="Preview"
-                    className="max-h-48 rounded-lg border border-slate-200 object-cover"
-                    onError={(e) => (e.currentTarget.style.display = "none")}
-                  />
-                </div>
-              )}
+
+              {/* Collapsible: Manual Public HTTPS URL */}
+              <div className="border-t border-slate-200/80 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowManualImageUrl(!showManualImageUrl)}
+                  className="flex items-center justify-between w-full text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors"
+                >
+                  <span>Advanced: Use existing public HTTPS URL</span>
+                  {showManualImageUrl ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+
+                {showManualImageUrl && (
+                  <div className="mt-2.5 space-y-2">
+                    <input
+                      type="url"
+                      placeholder="https://images.unsplash.com/photo-..."
+                      value={singleImageUrl}
+                      onChange={(e) => {
+                        setSingleImageUrl(e.target.value);
+                        setImageAsset(null);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-slate-900"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      If provided manually, this HTTPS URL will be passed directly to Threads image container API.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
+          {/* Dynamic Media Section: VIDEO */}
           {mediaType === "VIDEO" && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Video Attachment
-              </h4>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Public HTTPS Video URL (MP4 / MOV) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://example.com/video.mp4"
-                  value={singleVideoUrl}
-                  onChange={(e) => setSingleVideoUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-slate-900"
-                />
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Video Attachment
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => handleOpenLibrary({ type: "single_video" })}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-950 bg-white border border-slate-200 hover:border-slate-300 px-2.5 py-1 rounded-lg transition-colors shadow-2xs"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-500" />
+                  Select from Media Library
+                </button>
               </div>
+
+              {/* Direct Uploader */}
+              <MediaUploader
+                resourceType="video"
+                accountId={selectedAccountId}
+                initialAsset={videoAsset}
+                onUploadStart={() => setIsVideoUploading(true)}
+                onUploadComplete={(asset) => {
+                  setVideoAsset(asset);
+                  setSingleVideoUrl(asset.secureUrl);
+                  setIsVideoUploading(false);
+                }}
+                onError={() => setIsVideoUploading(false)}
+                onRemove={() => {
+                  setVideoAsset(null);
+                  setSingleVideoUrl("");
+                }}
+              />
+
+              {/* Alt Text */}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Alt Text (Optional)
                 </label>
                 <input
                   type="text"
-                  placeholder="Description of video..."
+                  placeholder="Describe what is in this video..."
                   value={singleVideoAlt}
                   onChange={(e) => setSingleVideoAlt(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-slate-900"
                 />
               </div>
-              <p className="text-xs text-slate-500 bg-amber-50 p-2.5 rounded-lg border border-amber-100 text-amber-800">
+
+              {/* Informational Callout */}
+              <p className="text-xs text-slate-500 bg-amber-50/80 p-2.5 rounded-lg border border-amber-200/60 text-amber-800">
                 ℹ️ Note: Video containers require asynchronous transcoding on Meta servers. If processing takes longer than 12s, the post is safely deferred to the 1-minute queue scheduler without timeout errors.
               </p>
+
+              {/* Collapsible: Manual Public HTTPS URL */}
+              <div className="border-t border-slate-200/80 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowManualVideoUrl(!showManualVideoUrl)}
+                  className="flex items-center justify-between w-full text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors"
+                >
+                  <span>Advanced: Use existing public HTTPS URL</span>
+                  {showManualVideoUrl ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+
+                {showManualVideoUrl && (
+                  <div className="mt-2.5 space-y-2">
+                    <input
+                      type="url"
+                      placeholder="https://example.com/video.mp4"
+                      value={singleVideoUrl}
+                      onChange={(e) => {
+                        setSingleVideoUrl(e.target.value);
+                        setVideoAsset(null);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-slate-900"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Must be a publicly accessible direct HTTPS link to an MP4 or MOV container.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
+          {/* Dynamic Media Section: CAROUSEL */}
           {mediaType === "CAROUSEL" && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Carousel Slides (2 to 10 items)
-                </h4>
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Carousel Slides ({carouselItems.length} of 10 items)
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Reorder slides using the arrows. Minimum 2, maximum 10 items.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={handleAddCarouselItem}
                   disabled={carouselItems.length >= 10}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors shadow-2xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add Slide
                 </button>
               </div>
 
-              <div className="space-y-3">
-                {carouselItems.map((item, idx) => (
+              <div className="space-y-3.5">
+                {carouselItems.map((slide, idx) => (
                   <div
-                    key={idx}
-                    className="p-3 bg-white border border-slate-200 rounded-lg space-y-2 relative"
+                    key={slide.id}
+                    className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs relative"
                   >
-                    <div className="flex items-center justify-between text-xs font-medium text-slate-700">
-                      <span>Slide #{idx + 1}</span>
-                      {carouselItems.length > 2 && (
+                    {/* Slide Top Bar */}
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-800">
+                          Slide #{idx + 1}
+                        </span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                          {slide.mediaKind}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => handleRemoveCarouselItem(idx)}
-                          className="text-rose-600 hover:text-rose-800 p-1"
-                          title="Remove Slide"
+                          onClick={() => handleMoveCarouselItem(idx, "up")}
+                          disabled={idx === 0}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"
+                          title="Move Slide Up"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <ArrowUp className="w-4 h-4" />
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => handleMoveCarouselItem(idx, "down")}
+                          disabled={idx === carouselItems.length - 1}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"
+                          title="Move Slide Down"
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </button>
+                        {carouselItems.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCarouselItem(idx)}
+                            className="p-1 text-rose-500 hover:text-rose-700 transition-colors ml-1"
+                            title="Remove Slide"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-2">
-                      <select
-                        value={item.mediaKind}
-                        onChange={(e) =>
-                          handleUpdateCarouselItem(
-                            idx,
-                            "mediaKind",
-                            e.target.value as "IMAGE" | "VIDEO"
-                          )
-                        }
-                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-800"
-                      >
-                        <option value="IMAGE">Image</option>
-                        <option value="VIDEO">Video</option>
-                      </select>
+
+                    {/* Media Type Selection for Slide */}
+                    <div className="flex items-center gap-3 text-xs">
+                      <label className="font-medium text-slate-600">Slide Type:</label>
+                      <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCarouselSlide(idx, { mediaKind: "IMAGE" })}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            slide.mediaKind === "IMAGE"
+                              ? "bg-white text-slate-900 shadow-2xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          Image
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCarouselSlide(idx, { mediaKind: "VIDEO" })}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            slide.mediaKind === "VIDEO"
+                              ? "bg-white text-slate-900 shadow-2xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          Video
+                        </button>
+                      </div>
+
+                      <div className="ml-auto">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleOpenLibrary({
+                              type: "carousel",
+                              index: idx,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5" />
+                          Choose from Library
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Slide Uploader or URL Input */}
+                    {slide.sourceUrl ? (
+                      <div className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                        {slide.mediaKind === "IMAGE" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={slide.sourceUrl}
+                            alt="Slide Preview"
+                            className="w-16 h-16 object-cover rounded border border-slate-200 flex-shrink-0 bg-white"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 bg-slate-800 text-white rounded flex items-center justify-center flex-shrink-0">
+                            <VideoIcon className="w-6 h-6" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono truncate text-slate-800">
+                            {slide.asset?.originalFilename || slide.sourceUrl}
+                          </p>
+                          {slide.asset?.bytes && (
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              {formatBytes(slide.asset.bytes)} • {slide.asset.width}x{slide.asset.height}
+                            </p>
+                          )}
+                          <p className="text-[11px] text-emerald-600 font-medium mt-0.5">
+                            Ready for publishing
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUpdateCarouselSlide(idx, {
+                              sourceUrl: "",
+                              asset: null,
+                              mediaAssetId: undefined,
+                            })
+                          }
+                          className="text-xs text-rose-600 hover:text-rose-800 px-2.5 py-1 rounded hover:bg-rose-50 transition-colors font-medium"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <MediaUploader
+                          resourceType={slide.mediaKind === "VIDEO" ? "video" : "image"}
+                          accountId={selectedAccountId}
+                          onUploadStart={() =>
+                            handleUpdateCarouselSlide(idx, { isUploading: true })
+                          }
+                          onUploadComplete={(asset) => {
+                            handleUpdateCarouselSlide(idx, {
+                              asset,
+                              sourceUrl: asset.secureUrl,
+                              mediaAssetId: asset.id,
+                              isUploading: false,
+                            });
+                          }}
+                          onError={() =>
+                            handleUpdateCarouselSlide(idx, { isUploading: false })
+                          }
+                          onRemove={() =>
+                            handleUpdateCarouselSlide(idx, {
+                              sourceUrl: "",
+                              asset: null,
+                              mediaAssetId: undefined,
+                            })
+                          }
+                        />
+
+                        {/* Collapsible Direct URL */}
+                        <div className="pt-1">
+                          <input
+                            type="url"
+                            placeholder="Or enter public HTTPS URL..."
+                            value={slide.sourceUrl}
+                            onChange={(e) =>
+                              handleUpdateCarouselSlide(idx, {
+                                sourceUrl: e.target.value,
+                                asset: null,
+                                mediaAssetId: undefined,
+                              })
+                            }
+                            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-800 focus:outline-none focus:border-slate-900"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Alt Text for Slide */}
+                    <div>
                       <input
-                        type="url"
-                        placeholder="Public HTTPS URL..."
-                        value={item.sourceUrl}
+                        type="text"
+                        placeholder="Slide alt text (accessibility)..."
+                        value={slide.altText}
                         onChange={(e) =>
-                          handleUpdateCarouselItem(idx, "sourceUrl", e.target.value)
+                          handleUpdateCarouselSlide(idx, { altText: e.target.value })
                         }
-                        className="col-span-3 px-2.5 py-1.5 bg-white border border-slate-200 rounded text-xs text-slate-800"
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-slate-900"
                       />
                     </div>
                   </div>
@@ -730,9 +1146,17 @@ export default function CreatePostPage() {
           <div className="pt-2">
             <button
               type="submit"
-              disabled={isSubmitting || isOverLimit || (mediaType === "TEXT" && !text.trim())}
+              disabled={
+                isSubmitting ||
+                isAnyUploading ||
+                isOverLimit ||
+                (mediaType === "TEXT" && !text.trim())
+              }
               className={`w-full py-3 px-4 rounded-xl text-white font-medium text-sm flex items-center justify-center gap-2 transition-all shadow-sm ${
-                isSubmitting || isOverLimit || (mediaType === "TEXT" && !text.trim())
+                isSubmitting ||
+                isAnyUploading ||
+                isOverLimit ||
+                (mediaType === "TEXT" && !text.trim())
                   ? "bg-slate-300 cursor-not-allowed"
                   : "bg-slate-900 hover:bg-slate-800 active:scale-[0.99]"
               }`}
@@ -741,6 +1165,11 @@ export default function CreatePostPage() {
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   {mode === "now" ? "Publishing to Threads..." : "Scheduling Delivery..."}
+                </>
+              ) : isAnyUploading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Uploading media files...
                 </>
               ) : mode === "now" ? (
                 <>
@@ -757,6 +1186,38 @@ export default function CreatePostPage() {
           </div>
         </form>
       )}
+
+      {/* Media Library Modal */}
+      <MediaLibraryModal
+        isOpen={libraryModalOpen}
+        allowedResourceType={
+          libraryTarget?.type === "single_image"
+            ? "image"
+            : libraryTarget?.type === "single_video"
+            ? "video"
+            : "all"
+        }
+        onClose={() => {
+          setLibraryModalOpen(false);
+          setLibraryTarget(null);
+        }}
+        onSelect={handleSelectFromLibrary}
+      />
     </div>
+  );
+}
+
+export default function CreatePostPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-3xl mx-auto p-12 text-center text-slate-400">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+          Loading workspace...
+        </div>
+      }
+    >
+      <CreatePostForm />
+    </Suspense>
   );
 }

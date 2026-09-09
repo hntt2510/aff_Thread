@@ -3,8 +3,7 @@ import { jwtVerify } from "jose";
 
 const SESSION_COOKIE_NAME = "aff_session";
 
-// Public endpoints that do not require admin session cookie (internal endpoints validate their own secrets)
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health", "/api/internal/scheduler/run", "/r"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health", "/api/internal/scheduler/run", "/api/internal/media-cleanup", "/r"];
 
 // Explicitly permitted public static assets
 const PUBLIC_STATIC_FILES = ["/favicon.ico", "/robots.txt", "/sitemap.xml"];
