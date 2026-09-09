@@ -4,6 +4,7 @@ import { GET as getProductsRoute, POST as postProductsRoute } from "@/app/api/sh
 import { POST as importRoute } from "@/app/api/shopee/products/import/route";
 import { GET as getPoolRoute } from "@/app/api/shopee/weekly-pool/route";
 import { GET as getDealsRoute, POST as postDealsRoute } from "@/app/api/shopee/deals/route";
+import { POST as calculateDealsRoute } from "@/app/api/shopee/deals/calculate/route";
 import { POST as runMatcherRoute } from "@/app/api/shopee/matcher/run/route";
 
 describe("Shopee Deal Intelligence API Routes", () => {
@@ -86,5 +87,47 @@ Tai nghe test,https://shopee.vn/test1,https://s.shopee.vn/aff1,15%,500`;
     const body = await res.json();
     expect(body.success).toBe(false);
     expect(body.error).toContain("Missing postId");
+  });
+
+  it("POST /api/shopee/deals/calculate returns authoritative calculation and deal opportunity", async () => {
+    const req = new NextRequest("http://localhost:3000/api/shopee/deals/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observedPrice: 100000,
+        originalPrice: 120000,
+        voucherDiscountType: "PERCENT",
+        voucherDiscountPercent: 20,
+        freeShipping: true,
+      }),
+    });
+    const res = await calculateDealsRoute(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.state).toBe("ACTIVE");
+    expect(body.basePrice).toBe(100000);
+    expect(body.discountAmount).toBe(20000);
+    expect(body.estimatedFinalPrice).toBe(80000);
+    expect(body.dealScore).toBeGreaterThan(0);
+    expect(body.dealScoreVersion).toBeDefined();
+    expect(Array.isArray(body.warnings)).toBe(true);
+  });
+
+  it("POST /api/shopee/deals/calculate validates observedPrice", async () => {
+    const req = new NextRequest("http://localhost:3000/api/shopee/deals/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observedPrice: -100,
+      }),
+    });
+    const res = await calculateDealsRoute(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("positive integer");
   });
 });

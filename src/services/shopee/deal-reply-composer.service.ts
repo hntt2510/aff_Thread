@@ -80,13 +80,17 @@ export class DealReplyComposerService {
       const basePriceFormatted = formatVnd(calculation.basePrice);
       const finalPriceFormatted = formatVnd(calculation.estimatedFinalPrice);
 
+      const pct = item.voucherDiscountPercent ?? calculation.evidence?.voucherDiscountPercent;
+      const amt = item.voucherDiscountAmount ?? calculation.evidence?.voucherDiscountAmount;
+      const code = item.voucherCode ?? calculation.evidence?.voucherCode;
+
       let voucherDesc = "";
-      if (item.voucherDiscountPercent) {
-        voucherDesc = `voucher ${item.voucherDiscountPercent}%`;
-      } else if (item.voucherDiscountAmount) {
-        voucherDesc = `voucher giảm ${formatVnd(item.voucherDiscountAmount)}`;
-      } else if (item.voucherCode) {
-        voucherDesc = `mã ${item.voucherCode}`;
+      if (pct) {
+        voucherDesc = `voucher ${pct}%`;
+      } else if (amt) {
+        voucherDesc = `voucher giảm ${formatVnd(amt)}`;
+      } else if (code) {
+        voucherDesc = `mã ${code}`;
       } else {
         voucherDesc = "voucher";
       }

@@ -7,6 +7,7 @@
 import { ProductRelevanceEvaluator, deterministicRelevanceEvaluator } from "./relevance-evaluator.service";
 import { CatalogScoreBreakdown } from "./catalog-scoring.service";
 import { DealOpportunityBreakdown } from "./deal-opportunity-scoring.service";
+import { FinalPriceCalculationResult } from "./final-price-calculator";
 
 export interface MatcherCandidateItem {
   id: string; // product id
@@ -19,6 +20,7 @@ export interface MatcherCandidateItem {
   catalogBreakdown?: CatalogScoreBreakdown;
   dealOpportunityScore?: number;
   dealOpportunityBreakdown?: DealOpportunityBreakdown;
+  dealCalculation?: FinalPriceCalculationResult;
   performanceScore?: number;
 }
 

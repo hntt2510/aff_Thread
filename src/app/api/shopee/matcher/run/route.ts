@@ -49,11 +49,15 @@ export async function POST(req: NextRequest) {
           .limit(1);
 
         let dealOpportunityScore = 50;
+        let dealCalculation: any = undefined;
         if (dealObs?.rawMetadataJson) {
           try {
             const meta = JSON.parse(dealObs.rawMetadataJson);
             if (meta.dealOpportunity?.score) {
               dealOpportunityScore = meta.dealOpportunity.score;
+            }
+            if (meta.calculation) {
+              dealCalculation = meta.calculation;
             }
           } catch {
             // Ignore parse errors
@@ -69,6 +73,7 @@ export async function POST(req: NextRequest) {
           imageUrl: item.product.imageUrl,
           catalogScore: item.poolItem.catalogScore,
           dealOpportunityScore,
+          dealCalculation,
         });
       }
     } else {
@@ -97,22 +102,22 @@ export async function POST(req: NextRequest) {
       weights: body.weights,
     });
 
-    // 4. Generate Reply Preview for Top Candidate
+    // 4. Generate Reply Preview for Top Candidate using Authoritative Calculation
     let replyPreview: any = null;
     if (rankedMatches.length > 0) {
       const topMatch = rankedMatches[0];
-      const calculation = finalPriceCalculator.calculate({
-        observedPrice: 150000, // Baseline or from deal observation
-        voucherDiscountType: "PERCENT",
-        voucherDiscountPercent: 20,
-      });
+      const calculation =
+        topMatch.product.dealCalculation ||
+        finalPriceCalculator.calculate({
+          observedPrice: 100000,
+          userEligibility: "UNKNOWN",
+        });
 
       const composed = dealReplyComposerService.composeReply([
         {
           title: topMatch.product.title,
           directAffiliateUrl: topMatch.product.affiliateUrl,
           calculation,
-          voucherDiscountPercent: 20,
         },
       ]);
       replyPreview = composed;

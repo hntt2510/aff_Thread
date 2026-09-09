@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ShoppingBag,
@@ -29,6 +29,7 @@ import {
   Upload,
   Calendar,
   Eye,
+  Loader2,
 } from "lucide-react";
 
 interface ProductItem {
@@ -139,6 +140,12 @@ function ShopeeDealsContent() {
   const [calcFlashSale, setCalcFlashSale] = useState(false);
   const [calcFreeShipping, setCalcFreeShipping] = useState(true);
   const [savingObservation, setSavingObservation] = useState(false);
+
+  // Authoritative Server-Side Calculation Preview State
+  const [calculationResult, setCalculationResult] = useState<any>(null);
+  const [calculating, setCalculating] = useState(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
+  const calcRequestIdRef = useRef(0);
 
   // Tab 4: Matcher Playground State
   const [publishedPosts, setPublishedPosts] = useState<any[]>([]);
@@ -268,91 +275,82 @@ function ShopeeDealsContent() {
     }
   };
 
-  // Pure Deterministic Calculator Preview
-  const computeLiveCalculation = () => {
-    const basePrice = Math.round(Number(calcBasePrice)) || 0;
-    const originalPrice = calcOriginalPrice ? Math.round(Number(calcOriginalPrice)) : null;
-    const value = Math.round(Number(calcVoucherValue)) || 0;
-    const maxDiscount = Math.round(Number(calcMaxDiscount)) || 0;
-    const minSpend = Math.round(Number(calcMinSpend)) || 0;
-    const validFrom = calcValidFrom ? new Date(calcValidFrom) : null;
-    const validUntil = calcValidUntil ? new Date(calcValidUntil) : null;
+  // Server-Authoritative Calculator Preview (debounced, race-condition safe)
+  useEffect(() => {
+    const requestId = ++calcRequestIdRef.current;
+    const controller = new AbortController();
 
-    if (basePrice <= 0) {
-      return {
-        state: "INVALID",
-        applicable: "NO",
-        basePrice: 0,
-        discountAmount: 0,
-        finalPrice: 0,
-        dealScore: 0,
-        warning: "Please enter a valid base price > 0",
-      };
+    const basePriceNum = parseInt(calcBasePrice, 10);
+    if (!calcBasePrice || isNaN(basePriceNum) || basePriceNum <= 0) {
+      setCalculationResult(null);
+      setCalculating(false);
+      setCalcError(null);
+      return;
     }
 
-    const now = new Date();
-    const isUpcoming = validFrom !== null && now.getTime() < validFrom.getTime();
-    const isExpired = validUntil !== null && now.getTime() > validUntil.getTime();
+    setCalculating(true);
+    setCalcError(null);
 
-    if (isExpired) {
-      return {
-        state: "EXPIRED",
-        applicable: "NO",
-        basePrice,
-        discountAmount: 0,
-        finalPrice: basePrice,
-        dealScore: 0,
-        warning: "Voucher has already expired.",
-      };
-    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/shopee/deals/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            observedPrice: basePriceNum,
+            originalPrice: calcOriginalPrice ? parseInt(calcOriginalPrice, 10) : undefined,
+            voucherDiscountType: calcVoucherType,
+            voucherDiscountPercent: calcVoucherType === "PERCENT" && calcVoucherValue ? parseFloat(calcVoucherValue) : undefined,
+            voucherDiscountAmount: calcVoucherType === "FIXED" && calcVoucherValue ? parseInt(calcVoucherValue, 10) : undefined,
+            voucherMaxDiscount: calcMaxDiscount ? parseInt(calcMaxDiscount, 10) : undefined,
+            voucherMinSpend: calcMinSpend ? parseInt(calcMinSpend, 10) : undefined,
+            voucherValidFrom: calcValidFrom || undefined,
+            voucherValidUntil: calcValidUntil || undefined,
+            flashSale: calcFlashSale,
+            freeShipping: calcFreeShipping,
+          }),
+        });
 
-    if (minSpend > 0 && basePrice < minSpend) {
-      return {
-        state: isUpcoming ? "UPCOMING" : "ACTIVE",
-        applicable: "NO",
-        basePrice,
-        discountAmount: 0,
-        finalPrice: basePrice,
-        dealScore: 20,
-        warning: `Minimum spend ${formatVnd(minSpend)} not met.`,
-      };
-    }
+        if (requestId !== calcRequestIdRef.current) {
+          return;
+        }
 
-    let rawDiscount = 0;
-    if (calcVoucherType === "PERCENT") {
-      rawDiscount = Math.round((basePrice * value) / 100);
-    } else {
-      rawDiscount = value;
-    }
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setCalculationResult(data);
+          setCalcError(null);
+        } else {
+          setCalcError(data.error || "Failed to calculate deal preview");
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+        if (requestId === calcRequestIdRef.current) {
+          setCalcError("Network error while calculating deal preview");
+        }
+      } finally {
+        if (requestId === calcRequestIdRef.current) {
+          setCalculating(false);
+        }
+      }
+    }, 350);
 
-    let discountAmount = rawDiscount;
-    if (maxDiscount > 0) {
-      discountAmount = Math.min(discountAmount, maxDiscount);
-    }
-    discountAmount = Math.min(basePrice, Math.max(0, discountAmount));
-    const finalPrice = basePrice - discountAmount;
-
-    // Deal score
-    const discountPct = basePrice > 0 ? (discountAmount / basePrice) * 100 : 0;
-    let dealScore = Math.min(100, Math.round(discountPct * 1.5 + (calcFlashSale ? 15 : 5) + (calcFreeShipping ? 10 : 0)));
-
-    let warning: string | undefined;
-    if (isUpcoming) {
-      warning = `Voucher not active yet (starts ${validFrom!.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}). Do NOT present ${formatVnd(finalPrice)} as current price.`;
-    }
-
-    return {
-      state: isUpcoming ? "UPCOMING" : "ACTIVE",
-      applicable: "YES",
-      basePrice,
-      discountAmount,
-      finalPrice,
-      dealScore,
-      warning,
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
     };
-  };
-
-  const liveCalc = computeLiveCalculation();
+  }, [
+    calcBasePrice,
+    calcOriginalPrice,
+    calcVoucherType,
+    calcVoucherValue,
+    calcMaxDiscount,
+    calcMinSpend,
+    calcValidFrom,
+    calcValidUntil,
+    calcFlashSale,
+    calcFreeShipping,
+  ]);
 
   const handleSaveObservation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -892,54 +890,86 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
             </form>
           </div>
 
-          {/* Right Column: Live Instant Deterministic Preview */}
+          {/* Right Column: Live Server-Authoritative Preview */}
           <div className="lg:col-span-6 space-y-4">
             <div className="bg-slate-900 text-white rounded-xl p-5 space-y-4 shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <span className="font-bold text-xs uppercase tracking-wider text-slate-400">
-                  Live Calculator Engine Preview
-                </span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    liveCalc.state === "ACTIVE"
-                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      : liveCalc.state === "UPCOMING"
-                      ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                      : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                  }`}
-                >
-                  {liveCalc.state}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-400">
+                    Authoritative Server Preview
+                  </span>
+                  {calculating && (
+                    <span className="flex items-center gap-1 text-[11px] text-orange-400">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Calculating...</span>
+                    </span>
+                  )}
+                </div>
+                {calculationResult && (
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      calculationResult.state === "ACTIVE"
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : calculationResult.state === "UPCOMING"
+                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                        : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                    }`}
+                  >
+                    {calculationResult.state}
+                  </span>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <span className="text-slate-400">Base Price:</span>
-                  <div className="text-lg font-bold">{formatVnd(liveCalc.basePrice)}</div>
+              {calcError && (
+                <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded-lg text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                  <span>{calcError}</span>
                 </div>
-                <div>
-                  <span className="text-slate-400">Discount Amount:</span>
-                  <div className="text-lg font-bold text-emerald-400">-{formatVnd(liveCalc.discountAmount)}</div>
-                </div>
-              </div>
+              )}
 
-              <div className="p-3 bg-slate-800 rounded-lg border border-slate-700 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-400">Estimated Final Deal Price:</span>
-                  <div className="text-2xl font-black text-orange-400 mt-0.5">
-                    {formatVnd(liveCalc.finalPrice)}
+              {calculationResult ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400">Base Price:</span>
+                      <div className="text-lg font-bold">{formatVnd(calculationResult.basePrice)}</div>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Discount Amount:</span>
+                      <div className="text-lg font-bold text-emerald-400">-{formatVnd(calculationResult.discountAmount)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400">Deal Opportunity:</span>
-                  <div className="text-lg font-bold text-emerald-300">{liveCalc.dealScore}/100</div>
-                </div>
-              </div>
 
-              {liveCalc.warning && (
-                <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-lg text-amber-300 text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>{liveCalc.warning}</span>
+                  <div className="p-3 bg-slate-800 rounded-lg border border-slate-700 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs text-slate-400">Estimated Final Deal Price:</span>
+                      <div className="text-2xl font-black text-orange-400 mt-0.5">
+                        {formatVnd(calculationResult.estimatedFinalPrice)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs text-slate-400">Deal Opportunity:</span>
+                      <div className="text-lg font-bold text-emerald-300">{calculationResult.dealScore}/100</div>
+                    </div>
+                  </div>
+
+                  {calculationResult.warning && (
+                    <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-lg text-amber-300 text-xs flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <span>{calculationResult.warning}</span>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-800">
+                    <span>Engine: {calculationResult.calculationVersion}</span>
+                    <span>Confidence: {Math.round(calculationResult.confidence * 100)}%</span>
+                  </div>
+                </>
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-500 space-y-1">
+                  <Calculator className="w-6 h-6 text-slate-600 mx-auto mb-1" />
+                  <div>Enter a base price to calculate server-authoritative deal facts.</div>
+                  <div className="text-[11px] text-slate-600">Calculated on server by FinalPriceCalculator.</div>
                 </div>
               )}
             </div>

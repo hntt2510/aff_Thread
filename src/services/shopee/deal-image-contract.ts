@@ -3,6 +3,19 @@
  * Defines the shared schema for future deal image card generators.
  * Guarantees that the generated visual card consumes the IDENTICAL FinalPriceCalculationResult
  * as the deal reply text, preventing price or voucher discrepancy.
+ *
+ * ONE DEAL FACT PIPELINE
+ *
+ * Observation
+ * → FinalPriceCalculator
+ * → DealOpportunityScoringService
+ * → Calculation Snapshot
+ *    ├── UI
+ *    ├── Product Matcher
+ *    ├── Reply Composer
+ *    └── Future Deal Image
+ *
+ * INVARIANT: No consumer recalculates financial/deal facts.
  */
 
 import { FinalPriceCalculationResult } from "./final-price-calculator";
