@@ -14,6 +14,7 @@ import {
   Share2,
   Link2,
   Image as ImageIcon,
+  DollarSign,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { label: "Accounts", href: "/accounts", icon: Users },
   { label: "Create Post", href: "/create", icon: PenSquare },
   { label: "Posts", href: "/posts", icon: History },
+  { label: "Monetization", href: "/monetization", icon: DollarSign },
   { label: "Affiliate", href: "/affiliate", icon: Link2 },
   { label: "Media", href: "/media", icon: ImageIcon },
 ];

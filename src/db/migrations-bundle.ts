@@ -106,5 +106,43 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "ALTER TABLE \"post_media\" ADD CONSTRAINT \"post_media_media_asset_id_media_assets_id_fk\" FOREIGN KEY (\"media_asset_id\") REFERENCES \"public\".\"media_assets\"(\"id\") ON DELETE set null ON UPDATE no action;",
       "CREATE INDEX \"post_media_asset_id_idx\" ON \"post_media\" USING btree (\"media_asset_id\");"
     ]
+  },
+  {
+    "tag": "0005_dusty_dragon_man",
+    "folderMillis": 1788958130814,
+    "bps": true,
+    "hash": "85d496cb185f61083ac168bdef2879bd6450f50558e6c9c5b6a1e8f0789d2b64",
+    "sql": [
+      "CREATE TABLE \"affiliate_replies\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"monetization_plan_id\" text NOT NULL,\n\t\"post_id\" text NOT NULL,\n\t\"sequence_no\" integer DEFAULT 1 NOT NULL,\n\t\"reply_text\" text NOT NULL,\n\t\"status\" text DEFAULT 'PENDING' NOT NULL,\n\t\"idempotency_key\" text NOT NULL,\n\t\"threads_container_id\" text,\n\t\"threads_reply_id\" text,\n\t\"attempts\" integer DEFAULT 0 NOT NULL,\n\t\"last_attempt_at\" timestamp with time zone,\n\t\"last_error\" text,\n\t\"scheduled_at\" timestamp with time zone,\n\t\"published_at\" timestamp with time zone,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"affiliate_replies_idempotency_key_unique\" UNIQUE(\"idempotency_key\")\n);",
+      "CREATE TABLE \"affiliate_reply_links\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"affiliate_reply_id\" text NOT NULL,\n\t\"affiliate_link_id\" text,\n\t\"destination_url\" text NOT NULL,\n\t\"position\" integer DEFAULT 0 NOT NULL,\n\t\"label\" text,\n\t\"metadata_json\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"monetization_plans\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"post_id\" text NOT NULL,\n\t\"status\" text DEFAULT 'DRAFT' NOT NULL,\n\t\"source\" text DEFAULT 'MANUAL' NOT NULL,\n\t\"score_at_creation\" integer,\n\t\"scheduled_at\" timestamp with time zone,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"monetization_runs\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"started_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"finished_at\" timestamp with time zone,\n\t\"trigger_source\" text DEFAULT 'cron-job-org' NOT NULL,\n\t\"collected\" integer DEFAULT 0 NOT NULL,\n\t\"evaluated\" integer DEFAULT 0 NOT NULL,\n\t\"eligible\" integer DEFAULT 0 NOT NULL,\n\t\"replies_claimed\" integer DEFAULT 0 NOT NULL,\n\t\"replies_published\" integer DEFAULT 0 NOT NULL,\n\t\"replies_deferred\" integer DEFAULT 0 NOT NULL,\n\t\"replies_failed\" integer DEFAULT 0 NOT NULL,\n\t\"ambiguous\" integer DEFAULT 0 NOT NULL,\n\t\"duration_ms\" integer DEFAULT 0 NOT NULL,\n\t\"sanitized_error\" text\n);",
+      "CREATE TABLE \"post_insight_snapshots\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"post_id\" text NOT NULL,\n\t\"threads_post_id\" text NOT NULL,\n\t\"views\" integer,\n\t\"likes\" integer,\n\t\"replies\" integer,\n\t\"reposts\" integer,\n\t\"quotes\" integer,\n\t\"shares\" integer,\n\t\"raw_metrics_json\" text,\n\t\"collected_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"post_monetization_state\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"post_id\" text NOT NULL,\n\t\"status\" text DEFAULT 'WATCHING' NOT NULL,\n\t\"current_score\" integer DEFAULT 0 NOT NULL,\n\t\"score_version\" text DEFAULT 'v1' NOT NULL,\n\t\"score_explanation\" text,\n\t\"first_eligible_at\" timestamp with time zone,\n\t\"last_evaluated_at\" timestamp with time zone,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"post_monetization_state_post_id_unique\" UNIQUE(\"post_id\")\n);",
+      "ALTER TABLE \"affiliate_replies\" ADD CONSTRAINT \"affiliate_replies_monetization_plan_id_monetization_plans_id_fk\" FOREIGN KEY (\"monetization_plan_id\") REFERENCES \"public\".\"monetization_plans\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"affiliate_replies\" ADD CONSTRAINT \"affiliate_replies_post_id_posts_id_fk\" FOREIGN KEY (\"post_id\") REFERENCES \"public\".\"posts\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"affiliate_reply_links\" ADD CONSTRAINT \"affiliate_reply_links_affiliate_reply_id_affiliate_replies_id_fk\" FOREIGN KEY (\"affiliate_reply_id\") REFERENCES \"public\".\"affiliate_replies\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"affiliate_reply_links\" ADD CONSTRAINT \"affiliate_reply_links_affiliate_link_id_affiliate_links_id_fk\" FOREIGN KEY (\"affiliate_link_id\") REFERENCES \"public\".\"affiliate_links\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "ALTER TABLE \"monetization_plans\" ADD CONSTRAINT \"monetization_plans_post_id_posts_id_fk\" FOREIGN KEY (\"post_id\") REFERENCES \"public\".\"posts\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"post_insight_snapshots\" ADD CONSTRAINT \"post_insight_snapshots_post_id_posts_id_fk\" FOREIGN KEY (\"post_id\") REFERENCES \"public\".\"posts\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"post_monetization_state\" ADD CONSTRAINT \"post_monetization_state_post_id_posts_id_fk\" FOREIGN KEY (\"post_id\") REFERENCES \"public\".\"posts\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "CREATE INDEX \"affiliate_replies_plan_idx\" ON \"affiliate_replies\" USING btree (\"monetization_plan_id\");",
+      "CREATE INDEX \"affiliate_replies_post_idx\" ON \"affiliate_replies\" USING btree (\"post_id\");",
+      "CREATE INDEX \"affiliate_replies_status_idx\" ON \"affiliate_replies\" USING btree (\"status\");",
+      "CREATE INDEX \"affiliate_replies_scheduled_at_idx\" ON \"affiliate_replies\" USING btree (\"scheduled_at\");",
+      "CREATE INDEX \"affiliate_replies_idempotency_key_idx\" ON \"affiliate_replies\" USING btree (\"idempotency_key\");",
+      "CREATE INDEX \"affiliate_reply_links_reply_idx\" ON \"affiliate_reply_links\" USING btree (\"affiliate_reply_id\");",
+      "CREATE INDEX \"affiliate_reply_links_link_idx\" ON \"affiliate_reply_links\" USING btree (\"affiliate_link_id\");",
+      "CREATE INDEX \"monetization_plans_post_id_idx\" ON \"monetization_plans\" USING btree (\"post_id\");",
+      "CREATE INDEX \"monetization_plans_status_idx\" ON \"monetization_plans\" USING btree (\"status\");",
+      "CREATE INDEX \"monetization_plans_scheduled_at_idx\" ON \"monetization_plans\" USING btree (\"scheduled_at\");",
+      "CREATE INDEX \"monetization_runs_started_at_idx\" ON \"monetization_runs\" USING btree (\"started_at\");",
+      "CREATE INDEX \"post_insight_snapshots_post_collected_idx\" ON \"post_insight_snapshots\" USING btree (\"post_id\",\"collected_at\");",
+      "CREATE INDEX \"post_insight_snapshots_collected_at_idx\" ON \"post_insight_snapshots\" USING btree (\"collected_at\");",
+      "CREATE INDEX \"post_insight_snapshots_threads_post_id_idx\" ON \"post_insight_snapshots\" USING btree (\"threads_post_id\");",
+      "CREATE INDEX \"post_monetization_state_status_idx\" ON \"post_monetization_state\" USING btree (\"status\");",
+      "CREATE INDEX \"post_monetization_state_score_idx\" ON \"post_monetization_state\" USING btree (\"current_score\");",
+      "CREATE INDEX \"post_monetization_state_last_eval_idx\" ON \"post_monetization_state\" USING btree (\"last_evaluated_at\");"
+    ]
   }
 ];

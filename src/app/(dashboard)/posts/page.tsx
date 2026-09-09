@@ -24,6 +24,7 @@ import {
   Layers,
   Link2,
   ExternalLink,
+  DollarSign,
 } from "lucide-react";
 import type { PostWithAccount } from "@/services/post.service";
 import { formatInTimezone, parseLocalDateTimeToUtc, DEFAULT_TIMEZONE } from "@/lib/date/timezone";
@@ -606,6 +607,16 @@ function PostsContent() {
                           Discard
                         </button>
                       </>
+                    )}
+
+                    {post.status === "PUBLISHED" && (
+                      <Link
+                        href={`/monetization?postId=${post.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-md font-medium text-xs transition-colors"
+                      >
+                        <DollarSign className="w-3 h-3 text-emerald-600" />
+                        Monetize
+                      </Link>
                     )}
                   </div>
 

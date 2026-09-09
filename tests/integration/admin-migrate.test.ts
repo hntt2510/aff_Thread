@@ -19,6 +19,8 @@ describe("Admin Schema Migration and Inspection", () => {
 
     expect(result.allObjectsExist).toBe(true);
     expect(result.is0003Applied).toBe(true);
+    expect(result.is0004Applied).toBe(true);
+    expect(result.is0005Applied).toBe(true);
   });
 
   it("is idempotent when running ensureDatabaseSchema repeatedly", async () => {
@@ -27,5 +29,7 @@ describe("Admin Schema Migration and Inspection", () => {
     const after = await inspectDatabaseSchema();
     expect(after.allObjectsExist).toBe(true);
     expect(after.is0003Applied).toBe(true);
+    expect(after.is0004Applied).toBe(true);
+    expect(after.is0005Applied).toBe(true);
   });
 });

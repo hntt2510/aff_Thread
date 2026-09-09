@@ -204,4 +204,164 @@ export type NewAffiliateClick = typeof affiliateClicks.$inferInsert;
 export type SchedulerRun = typeof schedulerRuns.$inferSelect;
 export type NewSchedulerRun = typeof schedulerRuns.$inferInsert;
 
+export type MonetizationEligibilityStatus =
+  | "WATCHING"
+  | "ELIGIBLE"
+  | "PLANNED"
+  | "MONETIZING"
+  | "MONETIZED"
+  | "SKIPPED"
+  | "FAILED";
+
+export type MonetizationPlanStatus =
+  | "DRAFT"
+  | "READY"
+  | "RUNNING"
+  | "COMPLETED"
+  | "PARTIAL"
+  | "FAILED"
+  | "CANCELLED";
+
+export type MonetizationPlanSource =
+  | "MANUAL"
+  | "RULE_ENGINE"
+  | "SHOPEE_DEAL_ENGINE";
+
+export type AffiliateReplyStatus =
+  | "PENDING"
+  | "READY"
+  | "CLAIMED"
+  | "SUBMITTING"
+  | "PUBLISHED"
+  | "AMBIGUOUS"
+  | "FAILED"
+  | "CANCELLED";
+
+export const postInsightSnapshots = pgTable("post_insight_snapshots", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  threadsPostId: text("threads_post_id").notNull(),
+  views: integer("views"),
+  likes: integer("likes"),
+  replies: integer("replies"),
+  reposts: integer("reposts"),
+  quotes: integer("quotes"),
+  shares: integer("shares"),
+  rawMetricsJson: text("raw_metrics_json"),
+  collectedAt: timestamp("collected_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("post_insight_snapshots_post_collected_idx").on(table.postId, table.collectedAt),
+  index("post_insight_snapshots_collected_at_idx").on(table.collectedAt),
+  index("post_insight_snapshots_threads_post_id_idx").on(table.threadsPostId),
+]);
+
+export const postMonetizationState = pgTable("post_monetization_state", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  postId: text("post_id").notNull().unique().references(() => posts.id, { onDelete: "cascade" }),
+  status: text("status").$type<MonetizationEligibilityStatus>().notNull().default("WATCHING"),
+  currentScore: integer("current_score").notNull().default(0),
+  scoreVersion: text("score_version").notNull().default("v1"),
+  scoreExplanation: text("score_explanation"),
+  firstEligibleAt: timestamp("first_eligible_at", { withTimezone: true }),
+  lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("post_monetization_state_status_idx").on(table.status),
+  index("post_monetization_state_score_idx").on(table.currentScore),
+  index("post_monetization_state_last_eval_idx").on(table.lastEvaluatedAt),
+]);
+
+export const monetizationPlans = pgTable("monetization_plans", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  status: text("status").$type<MonetizationPlanStatus>().notNull().default("DRAFT"),
+  source: text("source").$type<MonetizationPlanSource>().notNull().default("MANUAL"),
+  scoreAtCreation: integer("score_at_creation"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("monetization_plans_post_id_idx").on(table.postId),
+  index("monetization_plans_status_idx").on(table.status),
+  index("monetization_plans_scheduled_at_idx").on(table.scheduledAt),
+]);
+
+export const affiliateReplies = pgTable("affiliate_replies", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  monetizationPlanId: text("monetization_plan_id").notNull().references(() => monetizationPlans.id, { onDelete: "cascade" }),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  sequenceNo: integer("sequence_no").notNull().default(1),
+  replyText: text("reply_text").notNull(),
+  status: text("status").$type<AffiliateReplyStatus>().notNull().default("PENDING"),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  threadsContainerId: text("threads_container_id"),
+  threadsReplyId: text("threads_reply_id"),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_replies_plan_idx").on(table.monetizationPlanId),
+  index("affiliate_replies_post_idx").on(table.postId),
+  index("affiliate_replies_status_idx").on(table.status),
+  index("affiliate_replies_scheduled_at_idx").on(table.scheduledAt),
+  index("affiliate_replies_idempotency_key_idx").on(table.idempotencyKey),
+]);
+
+export const affiliateReplyLinks = pgTable("affiliate_reply_links", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  affiliateReplyId: text("affiliate_reply_id").notNull().references(() => affiliateReplies.id, { onDelete: "cascade" }),
+  affiliateLinkId: text("affiliate_link_id").references(() => affiliateLinks.id, { onDelete: "set null" }),
+  destinationUrl: text("destination_url").notNull(),
+  position: integer("position").notNull().default(0),
+  label: text("label"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_reply_links_reply_idx").on(table.affiliateReplyId),
+  index("affiliate_reply_links_link_idx").on(table.affiliateLinkId),
+]);
+
+export const monetizationRuns = pgTable("monetization_runs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  triggerSource: text("trigger_source").notNull().default("cron-job-org"),
+  collected: integer("collected").notNull().default(0),
+  evaluated: integer("evaluated").notNull().default(0),
+  eligible: integer("eligible").notNull().default(0),
+  repliesClaimed: integer("replies_claimed").notNull().default(0),
+  repliesPublished: integer("replies_published").notNull().default(0),
+  repliesDeferred: integer("replies_deferred").notNull().default(0),
+  repliesFailed: integer("replies_failed").notNull().default(0),
+  ambiguous: integer("ambiguous").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  sanitizedError: text("sanitized_error"),
+}, (table) => [
+  index("monetization_runs_started_at_idx").on(table.startedAt),
+]);
+
+export type PostInsightSnapshot = typeof postInsightSnapshots.$inferSelect;
+export type NewPostInsightSnapshot = typeof postInsightSnapshots.$inferInsert;
+
+export type PostMonetizationState = typeof postMonetizationState.$inferSelect;
+export type NewPostMonetizationState = typeof postMonetizationState.$inferInsert;
+
+export type MonetizationPlan = typeof monetizationPlans.$inferSelect;
+export type NewMonetizationPlan = typeof monetizationPlans.$inferInsert;
+
+export type AffiliateReply = typeof affiliateReplies.$inferSelect;
+export type NewAffiliateReply = typeof affiliateReplies.$inferInsert;
+
+export type AffiliateReplyLink = typeof affiliateReplyLinks.$inferSelect;
+export type NewAffiliateReplyLink = typeof affiliateReplyLinks.$inferInsert;
+
+export type MonetizationRun = typeof monetizationRuns.$inferSelect;
+export type NewMonetizationRun = typeof monetizationRuns.$inferInsert;
+
 

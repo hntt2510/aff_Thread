@@ -9,6 +9,7 @@ export interface SchemaInspectionResult {
   appliedMigrations: Array<{ id: number; hash: string; created_at: string }>;
   is0003Applied: boolean;
   is0004Applied: boolean;
+  is0005Applied: boolean;
   schemaObjects: {
     postsMediaType: boolean;
     postsProcessingStatus: boolean;
@@ -20,6 +21,12 @@ export interface SchemaInspectionResult {
     postAffiliateLinksTable: boolean;
     affiliateClicksTable: boolean;
     schedulerRunsTable: boolean;
+    postInsightSnapshotsTable: boolean;
+    postMonetizationStateTable: boolean;
+    monetizationPlansTable: boolean;
+    affiliateRepliesTable: boolean;
+    affiliateReplyLinksTable: boolean;
+    monetizationRunsTable: boolean;
   };
   allObjectsExist: boolean;
 }
@@ -67,11 +74,14 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     postMediaColumns = [];
   }
 
-  // 4. Inspect target tables (post_media, media_assets, affiliate_campaigns, affiliate_links, post_affiliate_links, affiliate_clicks, scheduler_runs)
+  // 4. Inspect target tables (post_media, media_assets, affiliate_campaigns, affiliate_links, post_affiliate_links, affiliate_clicks, scheduler_runs, post_insight_snapshots, post_monetization_state, monetization_plans, affiliate_replies, affiliate_reply_links, monetization_runs)
   let existingTables: string[] = [];
   try {
     const tableRows = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('post_media', 'media_assets', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs')`
+      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN (
+        'post_media', 'media_assets', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs',
+        'post_insight_snapshots', 'post_monetization_state', 'monetization_plans', 'affiliate_replies', 'affiliate_reply_links', 'monetization_runs'
+      )`
     );
     existingTables = (tableRows as unknown as Array<{ table_name: string }>).map((r) => r.table_name);
   } catch {
@@ -88,6 +98,12 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   const postAffiliateLinksTable = existingTables.includes("post_affiliate_links");
   const affiliateClicksTable = existingTables.includes("affiliate_clicks");
   const schedulerRunsTable = existingTables.includes("scheduler_runs");
+  const postInsightSnapshotsTable = existingTables.includes("post_insight_snapshots");
+  const postMonetizationStateTable = existingTables.includes("post_monetization_state");
+  const monetizationPlansTable = existingTables.includes("monetization_plans");
+  const affiliateRepliesTable = existingTables.includes("affiliate_replies");
+  const affiliateReplyLinksTable = existingTables.includes("affiliate_reply_links");
+  const monetizationRunsTable = existingTables.includes("monetization_runs");
 
   const is0003Applied = appliedMigrations.some(
     (m) => m.created_at === "1788942355838" || m.hash.startsWith("d6a4cc0d")
@@ -95,6 +111,10 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
 
   const is0004Applied = appliedMigrations.some(
     (m) => m.created_at === "1788948165485"
+  );
+
+  const is0005Applied = appliedMigrations.some(
+    (m) => m.created_at === "1788958130814"
   );
 
   const allObjectsExist =
@@ -107,12 +127,19 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     affiliateLinksTable &&
     postAffiliateLinksTable &&
     affiliateClicksTable &&
-    schedulerRunsTable;
+    schedulerRunsTable &&
+    postInsightSnapshotsTable &&
+    postMonetizationStateTable &&
+    monetizationPlansTable &&
+    affiliateRepliesTable &&
+    affiliateReplyLinksTable &&
+    monetizationRunsTable;
 
   return {
     appliedMigrations,
     is0003Applied,
     is0004Applied,
+    is0005Applied,
     schemaObjects: {
       postsMediaType,
       postsProcessingStatus,
@@ -124,6 +151,12 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
       postAffiliateLinksTable,
       affiliateClicksTable,
       schedulerRunsTable,
+      postInsightSnapshotsTable,
+      postMonetizationStateTable,
+      monetizationPlansTable,
+      affiliateRepliesTable,
+      affiliateReplyLinksTable,
+      monetizationRunsTable,
     },
     allObjectsExist,
   };

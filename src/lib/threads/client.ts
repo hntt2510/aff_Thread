@@ -30,6 +30,37 @@ export interface ThreadsProfile {
   threads_biography?: string;
 }
 
+export interface ThreadsMetricValue {
+  value: number;
+}
+
+export interface ThreadsInsightItem {
+  name: string;
+  period?: string;
+  values?: ThreadsMetricValue[];
+  title?: string;
+  description?: string;
+  id?: string;
+}
+
+export interface ThreadsPostInsights {
+  views: number | null;
+  likes: number | null;
+  replies: number | null;
+  reposts: number | null;
+  quotes: number | null;
+  shares: number | null;
+  rawMetricsJson: Record<string, unknown>;
+}
+
+export interface ThreadsConversationReply {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  is_reply?: boolean;
+}
+
 export class ThreadsClient {
   private baseUrl = "https://graph.threads.net/v1.0";
 
@@ -388,6 +419,149 @@ export class ThreadsClient {
     }
 
     return { id: data.id };
+  }
+
+  /**
+   * Fetches official post insights using HTTP Bearer Authorization.
+   * Endpoint: GET /{threadsMediaId}/insights?metric=views,likes,replies,reposts,quotes,shares
+   * Note: The access token is NEVER included in query params or URLs.
+   */
+  async getPostInsights(
+    accessToken: string,
+    threadsMediaId: string,
+    metrics: string[] = ["views", "likes", "replies", "reposts", "quotes", "shares"]
+  ): Promise<ThreadsPostInsights> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!threadsMediaId || !threadsMediaId.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Threads media ID cannot be empty", 400);
+    }
+
+    const url = new URL(`${this.baseUrl}/${encodeURIComponent(threadsMediaId.trim())}/insights`);
+    url.searchParams.set("metric", metrics.join(","));
+
+    const data = await this.request<{
+      data?: ThreadsInsightItem[];
+    }>(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+    });
+
+    const items = data.data || [];
+    const metricMap: Record<string, number | null> = {
+      views: null,
+      likes: null,
+      replies: null,
+      reposts: null,
+      quotes: null,
+      shares: null,
+    };
+    const rawMetricsJson: Record<string, unknown> = {};
+
+    for (const item of items) {
+      if (!item.name) continue;
+      rawMetricsJson[item.name] = item;
+      const firstVal = item.values?.[0]?.value;
+      if (typeof firstVal === "number") {
+        metricMap[item.name] = firstVal;
+      }
+    }
+
+    return {
+      views: metricMap.views,
+      likes: metricMap.likes,
+      replies: metricMap.replies,
+      reposts: metricMap.reposts,
+      quotes: metricMap.quotes,
+      shares: metricMap.shares,
+      rawMetricsJson,
+    };
+  }
+
+  /**
+   * Creates a reply container to a parent Threads post using HTTP Bearer Authorization.
+   * Endpoint: POST /me/threads with reply_to_id
+   * Supports TEXT, or media reply if provided.
+   */
+  async createReplyContainer(
+    accessToken: string,
+    replyToId: string,
+    text: string,
+    mediaKind?: "TEXT" | "IMAGE" | "VIDEO",
+    mediaUrl?: string
+  ): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!replyToId || !replyToId.trim()) {
+      throw new ThreadsApiError("API_ERROR", "reply_to_id cannot be empty", 400);
+    }
+    if (!text || !text.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Reply text cannot be empty", 400);
+    }
+
+    const url = `${this.baseUrl}/me/threads`;
+    const params = new URLSearchParams();
+    params.set("reply_to_id", replyToId.trim());
+    params.set("media_type", mediaKind || "TEXT");
+    params.set("text", text);
+
+    if (mediaKind === "IMAGE" && mediaUrl) {
+      params.set("image_url", mediaUrl.trim());
+    } else if (mediaKind === "VIDEO" && mediaUrl) {
+      params.set("video_url", mediaUrl.trim());
+    }
+
+    const data = await this.request<{ id: string }>(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!data.id) {
+      throw new ThreadsApiError("API_ERROR", "Failed to retrieve reply container ID from Threads", 502);
+    }
+
+    return { id: data.id };
+  }
+
+  /**
+   * Retrieves conversation replies for a Threads post to enable idempotent verification
+   * and reconciliation of ambiguous publishing results.
+   * Endpoint: GET /{threadsMediaId}/conversation?fields=id,text,username,timestamp,is_reply
+   */
+  async getConversationReplies(
+    accessToken: string,
+    threadsMediaId: string,
+    fields: string[] = ["id", "text", "username", "timestamp", "is_reply"]
+  ): Promise<ThreadsConversationReply[]> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!threadsMediaId || !threadsMediaId.trim()) {
+      throw new ThreadsApiError("API_ERROR", "threadsMediaId cannot be empty", 400);
+    }
+
+    const url = new URL(`${this.baseUrl}/${encodeURIComponent(threadsMediaId.trim())}/conversation`);
+    url.searchParams.set("fields", fields.join(","));
+    url.searchParams.set("reverse", "true");
+
+    const data = await this.request<{
+      data?: ThreadsConversationReply[];
+    }>(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+    });
+
+    return data.data || [];
   }
 
   private async request<T>(url: string, init: RequestInit): Promise<T> {

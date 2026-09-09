@@ -3,7 +3,7 @@ import { jwtVerify } from "jose";
 
 const SESSION_COOKIE_NAME = "aff_session";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health", "/api/internal/scheduler/run", "/api/internal/media-cleanup", "/r"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health", "/api/internal/scheduler/run", "/api/internal/media-cleanup", "/api/internal/monetization/run", "/r"];
 
 // Explicitly permitted public static assets
 const PUBLIC_STATIC_FILES = ["/favicon.ico", "/robots.txt", "/sitemap.xml"];

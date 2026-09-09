@@ -50,4 +50,17 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('CREATE TABLE "media_assets"');
     expect(allStatements).toContain('ALTER TABLE "post_media" ADD COLUMN "media_asset_id"');
   });
+
+  it("includes migration 0005 with monetization core tables", () => {
+    const mig0005 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0005_dusty_dragon_man");
+    expect(mig0005).toBeDefined();
+
+    const allStatements = mig0005!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "post_insight_snapshots"');
+    expect(allStatements).toContain('CREATE TABLE "post_monetization_state"');
+    expect(allStatements).toContain('CREATE TABLE "monetization_plans"');
+    expect(allStatements).toContain('CREATE TABLE "affiliate_replies"');
+    expect(allStatements).toContain('CREATE TABLE "affiliate_reply_links"');
+    expect(allStatements).toContain('CREATE TABLE "monetization_runs"');
+  });
 });
