@@ -7,6 +7,8 @@ export type ThreadsErrorCode =
   | "NETWORK_ERROR"
   | "API_ERROR";
 
+export type ThreadsMediaType = "TEXT" | "IMAGE";
+
 export class ThreadsApiError extends Error {
   code: ThreadsErrorCode;
   status: number;

@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer } from "drizzle-orm/pg-core";
+import type { PostStatus } from "@/lib/posts/lifecycle";
 
 export const threadsAccounts = pgTable("threads_accounts", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -37,14 +38,25 @@ export const posts = pgTable("posts", {
   containerId: text("container_id"),
   threadsPostId: text("threads_post_id"),
 
-  // Status: PUBLISHING | PUBLISHED | FAILED
-  status: text("status").notNull().default("PUBLISHING"),
+  // Status: DRAFT | SCHEDULED | PUBLISHING | PUBLISHED | FAILED | CANCELLED
+  status: text("status").$type<PostStatus>().notNull().default("PUBLISHING"),
 
   errorCode: text("error_code"),
   errorMessage: text("error_message"),
 
+  // Scheduling & queue fields
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+
+  // Retry & attempt tracking
+  publishAttempts: integer("publish_attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  lastError: text("last_error"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   publishedAt: timestamp("published_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type ThreadsAccount = typeof threadsAccounts.$inferSelect;
@@ -52,3 +64,4 @@ export type NewThreadsAccount = typeof threadsAccounts.$inferInsert;
 
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
+

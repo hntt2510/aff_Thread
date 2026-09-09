@@ -115,7 +115,19 @@ export async function ensureDatabaseSchema(client?: postgres.Sql): Promise<void>
         END $$;
       `);
 
-      // 6. Record migrations in drizzle tracking table
+      // 6. Ensure scheduling & queue columns and index on posts (Migration 0002 upgrade)
+      await sql.unsafe(`
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "scheduled_at" timestamp with time zone;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "failed_at" timestamp with time zone;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "cancelled_at" timestamp with time zone;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "publish_attempts" integer DEFAULT 0 NOT NULL;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "last_attempt_at" timestamp with time zone;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "last_error" text;
+        ALTER TABLE "posts" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT now() NOT NULL;
+        CREATE INDEX IF NOT EXISTS "posts_scheduled_due_idx" ON "posts" ("status", "scheduled_at") WHERE "status" = 'SCHEDULED';
+      `);
+
+      // 7. Record migrations in drizzle tracking table
       await sql.unsafe(`
         INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
         SELECT '0000_talented_adam_destine', 1788851104191
@@ -127,6 +139,12 @@ export async function ensureDatabaseSchema(client?: postgres.Sql): Promise<void>
         SELECT '0001_lazy_dagger', 1788859429750
         WHERE NOT EXISTS (
           SELECT 1 FROM "drizzle"."__drizzle_migrations" WHERE "created_at" = 1788859429750
+        );
+
+        INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
+        SELECT '0002_scheduling_queue', 1788935000000
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "drizzle"."__drizzle_migrations" WHERE "created_at" = 1788935000000
         );
       `);
 

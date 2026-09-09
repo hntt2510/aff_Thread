@@ -6,8 +6,23 @@ import { AccountService } from "@/services/account.service";
 import { threadsClient } from "@/lib/threads/client";
 import { db } from "@/db";
 import { posts, threadsAccounts } from "@/db/schema";
+import postgres from "postgres";
 
-describe("Publish API and Dashboard Stats Integration", () => {
+const databaseUrl = process.env.DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("Publish API and Dashboard Stats Integration", () => {
   let accountService: AccountService;
   let activeAccount: any;
 
@@ -69,7 +84,8 @@ describe("Publish API and Dashboard Stats Integration", () => {
     });
     await createPostHandler(createReq);
 
-    const listRes = await getPostsHandler();
+    const listReq = new NextRequest("http://localhost:3000/api/posts");
+    const listRes = await getPostsHandler(listReq);
     expect(listRes.status).toBe(200);
 
     const body = await listRes.json();

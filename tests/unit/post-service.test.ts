@@ -5,8 +5,23 @@ import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
 import { db } from "@/db";
 import { threadsAccounts, posts } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import postgres from "postgres";
 
-describe("PostService Multi-Account Publishing & Lifecycle", () => {
+const databaseUrl = process.env.DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("PostService Multi-Account Publishing & Lifecycle", () => {
   let postService: PostService;
   let accountService: AccountService;
 

@@ -25,6 +25,10 @@ const envSchema = z.object({
     .string({ required_error: "DATABASE_URL is required" })
     .transform((val) => val.trim())
     .refine((val) => val.length > 0, "DATABASE_URL is required"),
+  CRON_SECRET: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
 });
 
 let cachedEnv: z.infer<typeof envSchema> | null = null;

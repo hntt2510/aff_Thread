@@ -5,9 +5,17 @@ import { GET as meHandler } from "@/app/api/auth/me/route";
 import { NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 
+import crypto from "crypto";
+
 describe("Authentication Integration Flow", () => {
   const validUsername = "admin";
   const validPassword = "Anhlaso1@";
+
+  beforeAll(() => {
+    const salt = "0123456789abcdef0123456789abcdef";
+    const hash = crypto.scryptSync(validPassword, salt, 64).toString("hex");
+    process.env.ADMIN_PASSWORD_HASH = `${salt}:${hash}`;
+  });
 
   it("rejects login with wrong username", async () => {
     const req = new NextRequest("http://localhost:3000/api/auth/login", {

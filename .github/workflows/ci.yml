@@ -33,6 +33,7 @@ jobs:
       SESSION_SECRET: 85a12e1c87c7d99bdf071d728f89a9bf6638b509428cb11b1c465297abcf5121
       THREADS_TOKEN_ENCRYPTION_KEY: f33d01c7a05a6d150ff2b3fc9cb28327376abd2f787b043b47b9d143ecf29e7a
       DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/aff_thread_test
+      CRON_SECRET: ci_dummy_cron_secret_minimum_32_characters_for_testing
 
     steps:
       - name: Checkout repository

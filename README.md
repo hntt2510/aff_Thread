@@ -81,14 +81,82 @@ Copy the generated hash into `ADMIN_PASSWORD_HASH` in `.env.local`.
 Apply database schema to your PostgreSQL database:
 
 ```bash
-npm run db:push
+npm run db:migrate
 ```
 
-Or generate migration files:
+Automatic migration helper (`src/db/migrate.ts`) also ensures tables and scheduling columns are safely created on startup.
 
+---
+
+## Scheduling & Queue Engine
+
+### Post Lifecycle State Machine
+
+Each post moves through an explicit, validated lifecycle:
+- **DRAFT**: Created locally but not yet scheduled or published.
+- **SCHEDULED**: Queued for future automated delivery with a canonical UTC timestamp.
+- **PUBLISHING**: Claimed atomically by a worker (`SELECT ... FOR UPDATE SKIP LOCKED`).
+- **PUBLISHED**: Confirmed publication by Meta Threads API with permanent post ID. (Terminal state: immutable).
+- **FAILED**: Published or claimed attempt failed after exhausting retries or encountering fatal non-retryable error.
+- **CANCELLED**: Scheduled post intentionally cancelled by admin.
+
+### Timezone & Timestamp Handling
+
+- Scheduling input defaults to `Asia/Ho_Chi_Minh` (`UTC+7`, no daylight saving time).
+- UI displays times in local time for clarity.
+- All timestamps are stored canonically in UTC (`timestamptz`) in PostgreSQL.
+
+### Atomic Claiming & Duplicate Prevention
+
+Multiple serverless instances or workers may trigger the scheduler concurrently. To prevent duplicate publishing to Threads, the engine uses PostgreSQL atomic claiming:
+
+```sql
+UPDATE posts
+SET status = 'PUBLISHING', publish_attempts = publish_attempts + 1, last_attempt_at = NOW()
+WHERE id IN (
+  SELECT id FROM posts
+  WHERE status = 'SCHEDULED' AND scheduled_at <= NOW()
+  ORDER BY scheduled_at ASC
+  LIMIT 10
+  FOR UPDATE SKIP LOCKED
+) RETURNING *;
+```
+
+This guarantees that two racing workers will never claim or publish the same post.
+
+### Bounded Retry Policy
+
+- Maximum publish attempts: `MAX_PUBLISH_ATTEMPTS = 3`.
+- **Retryable Errors**: Temporary network timeouts, Meta rate limits (`429`), or 5xx server errors. Backoff is calculated as `attempts * 2` minutes.
+- **Non-Retryable Errors**: `INVALID_TOKEN` (401), `PERMISSION_ERROR` (403), or malformed content immediately transition to `FAILED` without burning retry attempts.
+- If an account token is invalid, the account is marked `INVALID_TOKEN` so future posts avoid endless attempts until re-authenticated.
+
+### Scheduler Endpoint (`/api/internal/scheduler/run`)
+
+The scheduler runs statelessly via an HTTP endpoint:
+- **Path**: `POST /api/internal/scheduler/run` (also supports `GET` for Vercel Cron)
+- **Authentication**: Requires `Authorization: Bearer <CRON_SECRET>` or active admin session. Comparison uses constant-time `crypto.timingSafeEqual`.
+- **Response**: Sanitized JSON execution summary:
+  ```json
+  {
+    "ok": true,
+    "claimed": 2,
+    "published": 2,
+    "failed": 0,
+    "retried": 0,
+    "durationMs": 420
+  }
+  ```
+
+#### How to Trigger Locally
 ```bash
-npm run db:generate
+curl -X POST http://localhost:3000/api/internal/scheduler/run \
+  -H "Authorization: Bearer your_cron_secret"
 ```
+
+#### Production Cron Setup
+- **Vercel Cron**: Configured in `vercel.json`. Add `CRON_SECRET` to Vercel Environment Variables.
+- **External Cron / GitHub Actions**: Send an authenticated `POST` request to `https://<your-app>.vercel.app/api/internal/scheduler/run` every 1-5 minutes with `Authorization: Bearer <CRON_SECRET>`.
 
 ---
 
@@ -124,8 +192,6 @@ npm run db:generate
 
 ## How to Add Threads Tester Accounts (Meta Development Mode)
 
-During Meta development mode, you can connect tester accounts without full App Review:
-
 1. Go to the [Meta for Developers Portal](https://developers.facebook.com/).
 2. Select your App with Threads API enabled.
 3. In **App Roles** -> **Roles**, click **Add Threads Tester**.
@@ -154,6 +220,7 @@ During Meta development mode, you can connect tester accounts without full App R
    - `ADMIN_PASSWORD_HASH` (generate locally with `node scripts/hash-password.mjs`)
    - `SESSION_SECRET` (generate with `node scripts/generate-key.mjs`)
    - `THREADS_TOKEN_ENCRYPTION_KEY` (generate with `node scripts/generate-key.mjs`)
+   - `CRON_SECRET` (generate with `node scripts/generate-key.mjs` for scheduler authentication)
    - `DATABASE_URL` (pointing to a production serverless PostgreSQL like Neon or Supabase)
-4. Deploy the project.
-5. In production, run migrations against your production database using `npm run db:migrate`.
+4. Deploy the project. Database tables and scheduling indexes will automatically initialize idempotently on startup.
+

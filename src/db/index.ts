@@ -10,7 +10,7 @@ declare global {
   var _drizzleDb: ReturnType<typeof drizzle<typeof schema>> | undefined;
 }
 
-function getDatabaseClient() {
+export function getDatabaseClient() {
   const env = getEnv();
   const connectionString = env.DATABASE_URL;
 
