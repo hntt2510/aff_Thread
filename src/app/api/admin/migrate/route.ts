@@ -1,16 +1,34 @@
-import { NextResponse } from "next/server";
-import { ensureDatabaseSchema } from "@/db/migrate";
+import { NextRequest, NextResponse } from "next/server";
+import { ensureDatabaseSchema, inspectDatabaseSchema } from "@/db/migrate";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const action = req.nextUrl.searchParams.get("action");
+
+    // Read-only inspection mode
+    if (action === "inspect") {
+      const state = await inspectDatabaseSchema();
+      return NextResponse.json({
+        success: true,
+        inspected: state,
+      });
+    }
+
+    // Migration mode: inspect before, ensure migrations, inspect after
     const start = Date.now();
+    const before = await inspectDatabaseSchema();
     await ensureDatabaseSchema();
+    const after = await inspectDatabaseSchema();
+
     return NextResponse.json({
       success: true,
       message: "Database schema is up to date",
       durationMs: Date.now() - start,
+      before,
+      after,
+      verified: after.allObjectsExist && after.is0003Applied,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -24,6 +42,6 @@ export async function GET() {
   }
 }
 
-export async function POST() {
-  return GET();
+export async function POST(req: NextRequest) {
+  return GET(req);
 }
