@@ -18,10 +18,45 @@ import {
   XCircle,
   RotateCw,
   CheckCircle2,
+  Type,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  Layers,
+  Link2,
+  ExternalLink,
 } from "lucide-react";
 import type { PostWithAccount } from "@/services/post.service";
 import { formatInTimezone, parseLocalDateTimeToUtc, DEFAULT_TIMEZONE } from "@/lib/date/timezone";
 import { PostStatus } from "@/lib/posts/lifecycle";
+
+const getMediaTypeBadge = (mediaType?: string) => {
+  switch (mediaType) {
+    case "IMAGE":
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+          <ImageIcon className="w-3 h-3" /> Image
+        </span>
+      );
+    case "VIDEO":
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+          <VideoIcon className="w-3 h-3" /> Video
+        </span>
+      );
+    case "CAROUSEL":
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+          <Layers className="w-3 h-3" /> Carousel
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+          <Type className="w-3 h-3" /> Text
+        </span>
+      );
+  }
+};
 
 const TABS: { label: string; value: string }[] = [
   { label: "All", value: "ALL" },
@@ -369,7 +404,8 @@ function PostsContent() {
                   </div>
 
                   {/* Status, Attempts & Timestamps */}
-                  <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {getMediaTypeBadge(post.mediaType)}
                     {getStatusBadge(post.status)}
 
                     {post.publishAttempts > 0 && post.status !== "PUBLISHED" && (
@@ -400,9 +436,54 @@ function PostsContent() {
                 </div>
 
                 {/* Post Text Preview */}
-                <p className="text-sm text-slate-800 whitespace-pre-wrap bg-slate-50/70 p-3.5 rounded-lg border border-slate-100 font-normal">
-                  {post.text}
-                </p>
+                {post.text && (
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap bg-slate-50/70 p-3.5 rounded-lg border border-slate-100 font-normal">
+                    {post.text}
+                  </p>
+                )}
+
+                {/* Attached Media Items Preview */}
+                {post.media && post.media.length > 0 && (
+                  <div className="flex items-center gap-2 overflow-x-auto py-1">
+                    {post.media.map((m, i) => (
+                      <div key={m.id || i} className="relative flex-shrink-0">
+                        {m.mediaKind === "IMAGE" ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={m.sourceUrl}
+                            alt={m.altText || `Slide ${i + 1}`}
+                            className="w-16 h-16 object-cover rounded-lg border border-slate-200"
+                            onError={(e) => (e.currentTarget.style.display = "none")}
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-slate-900 text-white flex flex-col items-center justify-center text-[10px] gap-1 p-1 text-center">
+                            <VideoIcon className="w-4 h-4" />
+                            <span>Video</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Attached Affiliate Tracking Links */}
+                {post.affiliateLinks && post.affiliateLinks.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {post.affiliateLinks.map((link) => (
+                      <a
+                        key={link.id}
+                        href={`https://affthread-chi.vercel.app/r/${link.publicSlug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                      >
+                        <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>/r/{link.publicSlug}</span>
+                        <ExternalLink className="w-3 h-3 text-emerald-500" />
+                      </a>
+                    ))}
+                  </div>
+                )}
 
                 {/* Reschedule Inline Form */}
                 {isRescheduling && (

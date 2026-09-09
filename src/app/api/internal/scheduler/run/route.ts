@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
   const batchSize = batchParam ? parseInt(batchParam, 10) : 10;
   const safeBatch = isNaN(batchSize) || batchSize <= 0 ? 10 : Math.min(batchSize, 50);
 
-  const result = await schedulerService.run(safeBatch);
+  const triggerSource = req.headers.get("x-scheduler-source") || "cron-job-org";
+  const result = await schedulerService.run(safeBatch, triggerSource);
   return NextResponse.json(result);
 }
 

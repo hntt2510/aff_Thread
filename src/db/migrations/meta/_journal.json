@@ -22,6 +22,13 @@
       "when": 1788935000000,
       "tag": "0002_scheduling_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788942355838,
+      "tag": "0003_media_affiliate_observability",
+      "breakpoints": true
     }
   ]
 }

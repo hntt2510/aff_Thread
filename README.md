@@ -11,8 +11,10 @@ Personal web-based Threads Affiliate Manager built with Next.js App Router, Type
 - **Identity Verification**: Verifies profile identity directly with Meta's official Graph API (`GET /me`) before storing.
 - **AES-256-GCM Token Encryption**: All access tokens are encrypted at rest with authenticated encryption (ciphertext + IV + auth tag). Plain tokens are never sent to the browser or logged.
 - **Account Protection**: Strict duplicate prevention and identity checking (tokens cannot accidentally overwrite different account identities).
-- **Manual Text Publishing**: Full two-stage container publication (`POST /me/threads` -> `POST /me/threads_publish`) with strict multi-account isolation.
-- **Audit History**: Complete post logs with container IDs, Threads post IDs, and sanitized error reporting.
+- **Multi-Format Publishing**: Support for `TEXT`, `IMAGE`, `VIDEO`, and `CAROUSEL` (2-10 items) via official Meta Threads Graph API. Includes serverless-safe asynchronous video container readiness polling and automatic rescheduling.
+- **Affiliate Tracking Engine**: Public `/r/[slug]` redirect endpoints with 307 temporary redirects, privacy-minimal salted SHA-256 IP hashing (zero raw IP storage), bot classification, post attribution, and campaign analytics.
+- **Queue Scheduler Observability**: Primary automated 1-minute runner (`cron-job.org`) with `scheduler_runs` audit table and live heartbeat health monitoring (`HEALTHY`, `DEGRADED`, `STALE`) in the Dashboard.
+- **Audit History**: Complete post logs with container IDs, Threads post IDs, media attachments, affiliate links, and sanitized error reporting.
 - **Deployment Ready**: Fully serverless-compatible for Vercel deployment with any PostgreSQL database (Neon, Supabase, etc.).
 
 ---
@@ -84,7 +86,7 @@ Apply database schema to your PostgreSQL database:
 npm run db:migrate
 ```
 
-Automatic migration helper (`src/db/migrate.ts`) also ensures tables and scheduling columns are safely created on startup.
+Committed migrations in `src/db/migrations` are the single source of truth for the schema. Run `npm run db:migrate` to apply migrations without runtime DDL mutations.
 
 ---
 
@@ -157,13 +159,17 @@ curl -X POST https://affthread-chi.vercel.app/api/internal/scheduler/run \
   -H "Authorization: Bearer <YOUR_CRON_SECRET>"
 ```
 
-#### Automated Periodic Execution (GitHub Actions)
-The primary automated scheduler is configured via GitHub Actions (`.github/workflows/scheduler.yml`) running every 5 minutes:
-- **Fail-Closed**: If `CRON_SECRET` is missing in GitHub repository secrets, the workflow terminates immediately with an error without calling the endpoint anonymously.
-- **Fail-On-HTTP-Error**: The workflow uses `curl --fail` so any 4xx or 5xx response immediately triggers a job failure alert.
-- **Required Repository Secrets**:
-  - `CRON_SECRET`: Required. Must match the production `CRON_SECRET` environment variable.
-  - `APP_URL`: Optional. Defaults to `https://affthread-chi.vercel.app`.
+#### Production Scheduler Architecture
+- **Primary Automated Scheduler (cron-job.org)**:
+  - Invokes `POST /api/internal/scheduler/run` every 1 minute.
+  - Header: `Authorization: Bearer <CRON_SECRET>`.
+  - Header: `X-Scheduler-Source: cron-job-org`.
+  - Concurrency safety: Handled atomically via PostgreSQL `FOR UPDATE SKIP LOCKED`.
+- **Manual / Emergency Backup (GitHub Actions)**:
+  - Workflow: `.github/workflows/scheduler.yml`.
+  - Trigger: `workflow_dispatch` only (manual trigger from GitHub Actions tab).
+  - Fail-closed: Exits with non-zero code if `CRON_SECRET` repository secret is missing.
+  - Passes `Authorization: Bearer $CRON_SECRET` and `X-Scheduler-Source: github-manual`.
 
 ---
 

@@ -15,6 +15,17 @@ export const POST_STATUSES: readonly PostStatus[] = [
   "CANCELLED",
 ] as const;
 
+export type PostMediaType = "TEXT" | "IMAGE" | "VIDEO" | "CAROUSEL";
+
+export const POST_MEDIA_TYPES: readonly PostMediaType[] = [
+  "TEXT",
+  "IMAGE",
+  "VIDEO",
+  "CAROUSEL",
+] as const;
+
+export type PostProcessingStatus = "IN_PROGRESS" | "FINISHED" | "ERROR";
+
 /**
  * State machine defining permitted transitions between post lifecycle states.
  * Enforces strict boundaries to prevent data corruption and duplicate publishing.

@@ -7,7 +7,8 @@ export type ThreadsErrorCode =
   | "NETWORK_ERROR"
   | "API_ERROR";
 
-export type ThreadsMediaType = "TEXT" | "IMAGE";
+export type ThreadsMediaType = "TEXT" | "IMAGE" | "VIDEO" | "CAROUSEL";
+export type ThreadsContainerStatus = "FINISHED" | "IN_PROGRESS" | "ERROR" | "EXPIRED";
 
 export class ThreadsApiError extends Error {
   code: ThreadsErrorCode;
@@ -104,6 +105,255 @@ export class ThreadsClient {
     }
 
     return { id: data.id };
+  }
+
+  /**
+   * Creates an image container for publishing.
+   * Endpoint: POST /me/threads
+   */
+  async createImageContainer(
+    accessToken: string,
+    imageUrl: string,
+    text?: string,
+    altText?: string
+  ): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!imageUrl || !imageUrl.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Image URL cannot be empty", 400);
+    }
+
+    const url = `${this.baseUrl}/me/threads`;
+    const params = new URLSearchParams();
+    params.set("media_type", "IMAGE");
+    params.set("image_url", imageUrl.trim());
+    if (text && text.trim()) {
+      params.set("text", text);
+    }
+    if (altText && altText.trim()) {
+      params.set("alt_text", altText.trim());
+    }
+
+    const data = await this.request<{ id: string }>(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!data.id) {
+      throw new ThreadsApiError("API_ERROR", "Failed to retrieve image container ID from Threads", 502);
+    }
+
+    return { id: data.id };
+  }
+
+  /**
+   * Creates a video container for publishing.
+   * Endpoint: POST /me/threads
+   */
+  async createVideoContainer(
+    accessToken: string,
+    videoUrl: string,
+    text?: string,
+    altText?: string
+  ): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!videoUrl || !videoUrl.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Video URL cannot be empty", 400);
+    }
+
+    const url = `${this.baseUrl}/me/threads`;
+    const params = new URLSearchParams();
+    params.set("media_type", "VIDEO");
+    params.set("video_url", videoUrl.trim());
+    if (text && text.trim()) {
+      params.set("text", text);
+    }
+    if (altText && altText.trim()) {
+      params.set("alt_text", altText.trim());
+    }
+
+    const data = await this.request<{ id: string }>(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!data.id) {
+      throw new ThreadsApiError("API_ERROR", "Failed to retrieve video container ID from Threads", 502);
+    }
+
+    return { id: data.id };
+  }
+
+  /**
+   * Creates an item container for use inside a carousel.
+   * Endpoint: POST /me/threads with is_carousel_item=true
+   */
+  async createCarouselItemContainer(
+    accessToken: string,
+    mediaKind: "IMAGE" | "VIDEO",
+    sourceUrl: string,
+    altText?: string
+  ): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!sourceUrl || !sourceUrl.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Media source URL cannot be empty", 400);
+    }
+
+    const url = `${this.baseUrl}/me/threads`;
+    const params = new URLSearchParams();
+    params.set("media_type", mediaKind);
+    if (mediaKind === "IMAGE") {
+      params.set("image_url", sourceUrl.trim());
+    } else {
+      params.set("video_url", sourceUrl.trim());
+    }
+    params.set("is_carousel_item", "true");
+    if (altText && altText.trim()) {
+      params.set("alt_text", altText.trim());
+    }
+
+    const data = await this.request<{ id: string }>(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!data.id) {
+      throw new ThreadsApiError("API_ERROR", "Failed to retrieve carousel item container ID from Threads", 502);
+    }
+
+    return { id: data.id };
+  }
+
+  /**
+   * Creates a carousel parent container containing 2 to 10 child item containers.
+   * Endpoint: POST /me/threads
+   */
+  async createCarouselContainer(
+    accessToken: string,
+    childrenContainerIds: string[],
+    text?: string
+  ): Promise<{ id: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!childrenContainerIds || childrenContainerIds.length < 2 || childrenContainerIds.length > 10) {
+      throw new ThreadsApiError("API_ERROR", "Carousel must contain between 2 and 10 child containers", 400);
+    }
+
+    const url = `${this.baseUrl}/me/threads`;
+    const params = new URLSearchParams();
+    params.set("media_type", "CAROUSEL");
+    params.set("children", childrenContainerIds.join(","));
+    if (text && text.trim()) {
+      params.set("text", text);
+    }
+
+    const data = await this.request<{ id: string }>(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!data.id) {
+      throw new ThreadsApiError("API_ERROR", "Failed to retrieve carousel container ID from Threads", 502);
+    }
+
+    return { id: data.id };
+  }
+
+  /**
+   * Retrieves status of an asynchronous media container.
+   * Endpoint: GET /{containerId}?fields=id,status,error_message
+   */
+  async getContainerStatus(
+    accessToken: string,
+    containerId: string
+  ): Promise<{ id: string; status: ThreadsContainerStatus; errorMessage?: string }> {
+    if (!accessToken || !accessToken.trim()) {
+      throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
+    }
+    if (!containerId || !containerId.trim()) {
+      throw new ThreadsApiError("API_ERROR", "Container ID is required", 400);
+    }
+
+    const url = new URL(`${this.baseUrl}/${encodeURIComponent(containerId.trim())}`);
+    url.searchParams.set("fields", "id,status,error_message");
+
+    const data = await this.request<{
+      id: string;
+      status: ThreadsContainerStatus;
+      error_message?: string;
+    }>(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken.trim()}`,
+      },
+    });
+
+    return {
+      id: data.id,
+      status: data.status || "FINISHED",
+      errorMessage: data.error_message,
+    };
+  }
+
+  /**
+   * Bounded readiness check for video or media containers.
+   * Safe for serverless execution: bounded polling to avoid timeout.
+   */
+  async waitForContainerReady(
+    accessToken: string,
+    containerId: string,
+    maxWaitMs = 12000,
+    pollIntervalMs = 2000
+  ): Promise<{ ready: boolean; status: ThreadsContainerStatus; errorMessage?: string }> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const statusRes = await this.getContainerStatus(accessToken, containerId);
+
+      if (statusRes.status === "FINISHED") {
+        return { ready: true, status: "FINISHED" };
+      }
+
+      if (statusRes.status === "ERROR" || statusRes.status === "EXPIRED") {
+        throw new ThreadsApiError(
+          "API_ERROR",
+          statusRes.errorMessage || `Media container processing ended in ${statusRes.status}`,
+          500
+        );
+      }
+
+      // Still IN_PROGRESS, wait before next check if we have enough time remaining
+      const remainingMs = maxWaitMs - (Date.now() - startTime);
+      if (remainingMs <= pollIntervalMs) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    // Timed out for this synchronous run, return status for async deferred handling
+    return { ready: false, status: "IN_PROGRESS" };
   }
 
   /**

@@ -6,9 +6,18 @@ import { isValidPostStatus, PostStatus } from "@/lib/posts/lifecycle";
 
 export const dynamic = "force-dynamic";
 
+const mediaItemSchema = z.object({
+  mediaKind: z.enum(["IMAGE", "VIDEO"]),
+  sourceUrl: z.string().min(1, "Media source URL is required"),
+  altText: z.string().max(1000).optional(),
+});
+
 const postPayloadSchema = z.object({
   accountId: z.string().min(1, "Account ID is required"),
-  text: z.string().min(1, "Post text cannot be empty").max(500, "Text exceeds 500 characters"),
+  text: z.string().max(500, "Text exceeds 500 characters").optional().default(""),
+  mediaType: z.enum(["TEXT", "IMAGE", "VIDEO", "CAROUSEL"]).default("TEXT"),
+  mediaItems: z.array(mediaItemSchema).optional().default([]),
+  affiliateLinkIds: z.array(z.string()).optional(),
   mode: z.enum(["now", "schedule"]).default("now"),
   scheduledAt: z.string().optional(),
 });
@@ -51,7 +60,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
 
-    const { accountId, text, mode, scheduledAt } = parsed.data;
+    const {
+      accountId,
+      text,
+      mediaType,
+      mediaItems,
+      affiliateLinkIds,
+      mode,
+      scheduledAt,
+    } = parsed.data;
+
+    if (mediaType === "TEXT" && (!text || !text.trim())) {
+      return NextResponse.json(
+        { error: "Post text cannot be empty for text posts" },
+        { status: 400 }
+      );
+    }
 
     if (mode === "schedule") {
       if (!scheduledAt) {
@@ -69,12 +93,25 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const post = await postService.schedulePost(accountId, text, scheduledDate);
+      const post = await postService.schedulePost({
+        accountId,
+        text,
+        mediaType,
+        mediaItems,
+        affiliateLinkIds,
+        scheduledAt: scheduledDate,
+      });
       return NextResponse.json({ success: true, post }, { status: 201 });
     }
 
     // Default: publish now
-    const post = await postService.publishTextPost(accountId, text);
+    const post = await postService.publishPost({
+      accountId,
+      text,
+      mediaType,
+      mediaItems,
+      affiliateLinkIds,
+    });
     return NextResponse.json({ success: true, post }, { status: 201 });
   } catch (err) {
     const safeError = sanitizeErrorMessage(err, "Failed to create or publish post");

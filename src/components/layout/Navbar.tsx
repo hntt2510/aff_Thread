@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Share2,
+  Link2,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { label: "Accounts", href: "/accounts", icon: Users },
   { label: "Create Post", href: "/create", icon: PenSquare },
   { label: "Posts", href: "/posts", icon: History },
+  { label: "Affiliate", href: "/affiliate", icon: Link2 },
 ];
 
 export default function Navbar() {

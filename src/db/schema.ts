@@ -1,5 +1,5 @@
-import { pgTable, text, timestamp, integer } from "drizzle-orm/pg-core";
-import type { PostStatus } from "@/lib/posts/lifecycle";
+import { pgTable, text, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
+import type { PostStatus, PostMediaType, PostProcessingStatus } from "@/lib/posts/lifecycle";
 
 export const threadsAccounts = pgTable("threads_accounts", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -34,6 +34,11 @@ export const posts = pgTable("posts", {
 
   text: text("text").notNull(),
 
+  // Media type: TEXT | IMAGE | VIDEO | CAROUSEL
+  mediaType: text("media_type").$type<PostMediaType>().notNull().default("TEXT"),
+  // Asynchronous container readiness status: IN_PROGRESS | FINISHED | ERROR | null
+  processingStatus: text("processing_status").$type<PostProcessingStatus>(),
+
   // Threads API tracking
   containerId: text("container_id"),
   threadsPostId: text("threads_post_id"),
@@ -59,9 +64,114 @@ export const posts = pgTable("posts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const postMedia = pgTable("post_media", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  mediaKind: text("media_kind").notNull(), // "IMAGE" | "VIDEO"
+  sourceUrl: text("source_url").notNull(),
+  position: integer("position").notNull().default(0),
+  altText: text("alt_text"),
+  containerId: text("container_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("post_media_post_id_idx").on(table.postId),
+  index("post_media_position_idx").on(table.postId, table.position),
+]);
+
+export const affiliateCampaigns = pgTable("affiliate_campaigns", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  network: text("network"),
+  description: text("description"),
+  status: text("status").notNull().default("ACTIVE"), // "ACTIVE" | "PAUSED" | "ARCHIVED"
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const affiliateLinks = pgTable("affiliate_links", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  campaignId: text("campaign_id").references(() => affiliateCampaigns.id, { onDelete: "set null" }),
+  destinationUrl: text("destination_url").notNull(),
+  publicSlug: text("public_slug").notNull().unique(),
+  label: text("label"),
+  network: text("network"),
+  subId: text("sub_id"),
+  status: text("status").notNull().default("ACTIVE"), // "ACTIVE" | "PAUSED"
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_links_slug_idx").on(table.publicSlug),
+  index("affiliate_links_campaign_idx").on(table.campaignId),
+  index("affiliate_links_status_idx").on(table.status),
+]);
+
+export const postAffiliateLinks = pgTable("post_affiliate_links", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  affiliateLinkId: text("affiliate_link_id").notNull().references(() => affiliateLinks.id, { onDelete: "cascade" }),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("post_affiliate_links_post_idx").on(table.postId),
+  index("post_affiliate_links_link_idx").on(table.affiliateLinkId),
+]);
+
+export const affiliateClicks = pgTable("affiliate_clicks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  affiliateLinkId: text("affiliate_link_id").notNull().references(() => affiliateLinks.id, { onDelete: "cascade" }),
+  postId: text("post_id").references(() => posts.id, { onDelete: "set null" }),
+  campaignId: text("campaign_id").references(() => affiliateCampaigns.id, { onDelete: "set null" }),
+  clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
+  anonymizedIpHash: text("anonymized_ip_hash"),
+  userAgentClass: text("user_agent_class"), // "MOBILE" | "DESKTOP" | "BOT" | "UNKNOWN"
+  isBot: boolean("is_bot").notNull().default(false),
+  refererDomain: text("referer_domain"),
+  country: text("country"),
+}, (table) => [
+  index("affiliate_clicks_link_idx").on(table.affiliateLinkId),
+  index("affiliate_clicks_post_idx").on(table.postId),
+  index("affiliate_clicks_clicked_at_idx").on(table.clickedAt),
+  index("affiliate_clicks_is_bot_idx").on(table.isBot),
+]);
+
+export const schedulerRuns = pgTable("scheduler_runs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  triggerSource: text("trigger_source").notNull().default("cron-job-org"),
+  claimed: integer("claimed").notNull().default(0),
+  published: integer("published").notNull().default(0),
+  rescheduled: integer("rescheduled").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  staleRecovered: integer("stale_recovered").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  sanitizedError: text("sanitized_error"),
+}, (table) => [
+  index("scheduler_runs_started_at_idx").on(table.startedAt),
+]);
+
 export type ThreadsAccount = typeof threadsAccounts.$inferSelect;
 export type NewThreadsAccount = typeof threadsAccounts.$inferInsert;
 
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
+
+export type PostMedia = typeof postMedia.$inferSelect;
+export type NewPostMedia = typeof postMedia.$inferInsert;
+
+export type AffiliateCampaign = typeof affiliateCampaigns.$inferSelect;
+export type NewAffiliateCampaign = typeof affiliateCampaigns.$inferInsert;
+
+export type AffiliateLink = typeof affiliateLinks.$inferSelect;
+export type NewAffiliateLink = typeof affiliateLinks.$inferInsert;
+
+export type PostAffiliateLink = typeof postAffiliateLinks.$inferSelect;
+export type NewPostAffiliateLink = typeof postAffiliateLinks.$inferInsert;
+
+export type AffiliateClick = typeof affiliateClicks.$inferSelect;
+export type NewAffiliateClick = typeof affiliateClicks.$inferInsert;
+
+export type SchedulerRun = typeof schedulerRuns.$inferSelect;
+export type NewSchedulerRun = typeof schedulerRuns.$inferInsert;
+
 
