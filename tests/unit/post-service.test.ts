@@ -246,4 +246,80 @@ describe.skipIf(!isDbReachable)("PostService Multi-Account Publishing & Lifecycl
     expect(history[0].account?.displayName).toBe("Account A");
     expect(history[0].account?.isDisconnected).toBe(true);
   });
+
+  it("preserves cumulative attempt count and audit trail when operator retries a failed post", async () => {
+    // 1. Seed a failed post that had 3 prior failed attempts
+    const [failedPost] = await db
+      .insert(posts)
+      .values({
+        accountId: accountA.id,
+        accountThreadsUserId: "threads_user_A",
+        accountUsername: "account_a",
+        accountDisplayName: "Account A",
+        text: "Post that failed 3 times",
+        status: "FAILED",
+        publishAttempts: 3,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: "Connection timed out",
+        failedAt: new Date(),
+      })
+      .returning();
+
+    // Mock successful Threads publish for the operator retry
+    vi.spyOn(threadsClient, "createTextContainer").mockResolvedValue({
+      id: "container_retry_001",
+    });
+    vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({
+      id: "threads_post_retry_001",
+    });
+
+    // 2. Operator triggers retry
+    const retriedPost = await postService.retryFailedPost(failedPost.id);
+
+    // 3. Verify cumulative attempts incremented to 4 (NOT reset to 0)
+    expect(retriedPost.status).toBe("PUBLISHED");
+    expect(retriedPost.publishAttempts).toBe(4);
+    expect(retriedPost.threadsPostId).toBe("threads_post_retry_001");
+
+    // Verify database record
+    const [dbRecord] = await db
+      .select()
+      .from(posts)
+      .where(eq(posts.id, failedPost.id));
+    expect(dbRecord.publishAttempts).toBe(4);
+    expect(dbRecord.status).toBe("PUBLISHED");
+  });
+
+  it("safely recovers stale PUBLISHING posts to FAILED to prevent duplicate publishing", async () => {
+    const pastTime = new Date(Date.now() - 20 * 60 * 1000); // 20 mins ago
+
+    // Seed a post stuck in PUBLISHING from a crashed worker
+    const [stalePost] = await db
+      .insert(posts)
+      .values({
+        accountId: accountA.id,
+        accountThreadsUserId: "threads_user_A",
+        accountUsername: "account_a",
+        accountDisplayName: "Account A",
+        text: "Stale post from crashed container",
+        status: "PUBLISHING",
+        publishAttempts: 1,
+        lastAttemptAt: pastTime,
+      })
+      .returning();
+
+    // Recover stale posts older than 10 minutes
+    const recoveredCount = await postService.recoverStalePublishingPosts(10);
+    expect(recoveredCount).toBeGreaterThanOrEqual(1);
+
+    // Verify the stale post transitioned to FAILED with descriptive timeout code
+    const [dbRecord] = await db
+      .select()
+      .from(posts)
+      .where(eq(posts.id, stalePost.id));
+    expect(dbRecord.status).toBe("FAILED");
+    expect(dbRecord.errorCode).toBe("STALE_PUBLISHING_TIMEOUT");
+    expect(dbRecord.failedAt).not.toBeNull();
+    // It is in FAILED, NOT SCHEDULED, guaranteeing NO blind duplicate publishing
+  });
 });

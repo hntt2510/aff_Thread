@@ -4,7 +4,6 @@ import { eq, desc, and } from "drizzle-orm";
 import { accountService } from "./account.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
 import { sanitizeErrorMessage } from "@/lib/errors/sanitizer";
-import { ensureDatabaseSchema } from "@/db/migrate";
 import {
   PostStatus,
   assertValidTransition,
@@ -37,7 +36,6 @@ export class PostService {
    * - Preserves post history even if account is later removed/disconnected
    */
   async publishTextPost(accountId: string, rawText: string): Promise<Post> {
-    await ensureDatabaseSchema();
     const text = rawText ? rawText.trim() : "";
 
     if (!text) {
@@ -174,7 +172,6 @@ export class PostService {
     rawText: string,
     scheduledAt: Date
   ): Promise<Post> {
-    await ensureDatabaseSchema();
     const text = rawText ? rawText.trim() : "";
 
     if (!text) {
@@ -223,7 +220,6 @@ export class PostService {
    * claim or publish the same post.
    */
   async claimDuePosts(limit = 10): Promise<Post[]> {
-    await ensureDatabaseSchema();
     const sql = getDatabaseClient();
 
     const claimedRows = await sql<Post[]>`
@@ -273,8 +269,6 @@ export class PostService {
    * Handles container creation, publish, retry decisions with backoff, and terminal failure.
    */
   async processClaimedPost(post: Post): Promise<Post> {
-    await ensureDatabaseSchema();
-
     if (!post.accountId) {
       // Account was deleted/disconnected permanently
       const [failedPost] = await db
@@ -419,8 +413,6 @@ export class PostService {
    * Cancels a scheduled or draft post.
    */
   async cancelScheduledPost(postId: string): Promise<Post> {
-    await ensureDatabaseSchema();
-
     const [existing] = await db
       .select()
       .from(posts)
@@ -450,8 +442,6 @@ export class PostService {
    * Reschedules a scheduled or cancelled post to a new timestamp.
    */
   async reschedulePost(postId: string, newScheduledAt: Date): Promise<Post> {
-    await ensureDatabaseSchema();
-
     const timeValidation = validateScheduledTime(newScheduledAt, 60);
     if (!timeValidation.valid) {
       throw new Error(timeValidation.error || "Invalid scheduled time");
@@ -488,10 +478,9 @@ export class PostService {
   /**
    * Retries a failed post immediately.
    * Atomically claims the failed post into 'PUBLISHING' and executes the publish flow.
+   * Preserves cumulative attempt history and audit trail (does NOT reset to 0).
    */
   async retryFailedPost(postId: string): Promise<Post> {
-    await ensureDatabaseSchema();
-
     const [existing] = await db
       .select()
       .from(posts)
@@ -544,6 +533,34 @@ export class PostService {
   }
 
   /**
+   * Recovers posts stuck in 'PUBLISHING' status for longer than `staleThresholdMinutes`.
+   * To prevent duplicate posts on Threads API (ambiguous outcome protection),
+   * stale claims are transitioned to terminal 'FAILED' with a descriptive error code
+   * requiring manual operator review rather than blindly re-publishing.
+   */
+  async recoverStalePublishingPosts(staleThresholdMinutes = 10): Promise<number> {
+    const sql = getDatabaseClient();
+    const safeMinutes = Math.max(1, staleThresholdMinutes);
+    const intervalStr = `${safeMinutes} minutes`;
+
+    const recovered = await sql<{ id: string }[]>`
+      UPDATE "posts"
+      SET
+        "status" = 'FAILED',
+        "failed_at" = NOW(),
+        "error_code" = 'STALE_PUBLISHING_TIMEOUT',
+        "error_message" = 'Publish attempt timed out or worker died in PUBLISHING status. Flagged as FAILED to prevent duplicate publishing. Manual operator review required.',
+        "last_error" = 'Publish attempt timed out or worker died in PUBLISHING status. Flagged as FAILED to prevent duplicate publishing. Manual operator review required.',
+        "updated_at" = NOW()
+      WHERE "status" = 'PUBLISHING'
+        AND "last_attempt_at" <= NOW() - (${intervalStr})::interval
+      RETURNING "id";
+    `;
+
+    return recovered.length;
+  }
+
+  /**
    * Retrieves post history with associated account information.
    * Supports filtering by status and limit.
    */
@@ -552,7 +569,6 @@ export class PostService {
     accountId?: string;
     limit?: number;
   }): Promise<PostWithAccount[]> {
-    await ensureDatabaseSchema();
     const limit = options?.limit || 100;
 
     const conditions = [];
@@ -605,8 +621,6 @@ export class PostService {
    * Retrieves upcoming scheduled posts ordered by scheduledAt ASC.
    */
   async listUpcomingScheduled(limit = 5): Promise<PostWithAccount[]> {
-    await ensureDatabaseSchema();
-
     const rows = await db
       .select({
         post: posts,

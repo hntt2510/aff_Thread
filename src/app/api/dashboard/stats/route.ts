@@ -2,14 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { threadsAccounts, posts } from "@/db/schema";
 import { eq, count } from "drizzle-orm";
-import { ensureDatabaseSchema } from "@/db/migrate";
 import { postService } from "@/services/post.service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await ensureDatabaseSchema();
 
     const [accountsResult] = await db
       .select({ count: count() })

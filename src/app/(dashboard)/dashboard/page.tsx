@@ -14,7 +14,6 @@ import {
 import { db } from "@/db";
 import { threadsAccounts, posts } from "@/db/schema";
 import { eq, count } from "drizzle-orm";
-import { ensureDatabaseSchema } from "@/db/migrate";
 import { postService, PostWithAccount } from "@/services/post.service";
 import { formatInTimezone } from "@/lib/date/timezone";
 
@@ -22,7 +21,6 @@ export const dynamic = "force-dynamic";
 
 async function getDashboardData() {
   try {
-    await ensureDatabaseSchema();
 
     const [accountsResult] = await db
       .select({ count: count() })

@@ -17,33 +17,11 @@ function verifyCronSecret(provided: string | null): boolean {
 }
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
-  // 1. Check Bearer token in Authorization header
+  // Canonical authentication mechanism: Authorization Bearer <CRON_SECRET>
   const authHeader = req.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
     if (verifyCronSecret(token)) return true;
-  }
-
-  // 2. Check x-cron-secret header
-  const headerSecret = req.headers.get("x-cron-secret");
-  if (headerSecret && verifyCronSecret(headerSecret)) return true;
-
-  // 3. Check query parameter ?cron_secret=...
-  const querySecret = req.nextUrl.searchParams.get("cron_secret");
-  if (querySecret && verifyCronSecret(querySecret)) return true;
-
-  // 4. Check admin session cookie
-  const sessionCookie = req.cookies.get("aff_session")?.value;
-  if (sessionCookie && process.env.SESSION_SECRET) {
-    try {
-      const secretKey = new TextEncoder().encode(process.env.SESSION_SECRET);
-      const { payload } = await jwtVerify(sessionCookie, secretKey, {
-        algorithms: ["HS256"],
-      });
-      if (payload.role === "admin") return true;
-    } catch {
-      return false;
-    }
   }
 
   return false;

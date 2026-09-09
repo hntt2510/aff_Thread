@@ -13,8 +13,9 @@ describe("Scheduler Route Authentication", () => {
       ok: true,
       claimed: 0,
       published: 0,
+      rescheduled: 0,
       failed: 0,
-      retried: 0,
+      staleRecovered: 0,
       durationMs: 5,
     });
   });
@@ -62,19 +63,7 @@ describe("Scheduler Route Authentication", () => {
     expect(schedulerService.run).toHaveBeenCalled();
   });
 
-  it("authorizes invocation with valid x-cron-secret header", async () => {
-    const req = new NextRequest("http://localhost:3000/api/internal/scheduler/run", {
-      method: "POST",
-      headers: {
-        "x-cron-secret": testSecret,
-      },
-    });
-
-    const res = await schedulerRoute(req);
-    expect(res.status).toBe(200);
-  });
-
-  it("authorizes invocation with valid ?cron_secret= query param", async () => {
+  it("rejects invocation with ?cron_secret=<valid secret> query param without Authorization header (401)", async () => {
     const req = new NextRequest(
       `http://localhost:3000/api/internal/scheduler/run?cron_secret=${testSecret}`,
       {
@@ -83,19 +72,20 @@ describe("Scheduler Route Authentication", () => {
     );
 
     const res = await schedulerRoute(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
   });
 
-  it("authorizes invocation when authenticated with valid admin session cookie", async () => {
-    const token = await createSessionToken("admin");
+  it("rejects invocation with x-cron-secret header without Authorization header (401)", async () => {
     const req = new NextRequest("http://localhost:3000/api/internal/scheduler/run", {
       method: "POST",
       headers: {
-        Cookie: `aff_session=${token}`,
+        "x-cron-secret": testSecret,
       },
     });
 
     const res = await schedulerRoute(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 });

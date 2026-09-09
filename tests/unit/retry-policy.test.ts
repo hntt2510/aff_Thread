@@ -75,5 +75,17 @@ describe("Retry Policy & Error Classification", () => {
       expect(decision.nextStatus).toBe("FAILED");
       expect(decision.nextScheduledAt).toBeUndefined();
     });
+
+    it("prevents automatic retries when prior attempts already exceed MAX_PUBLISH_ATTEMPTS (operator retries)", () => {
+      // If an operator manually retried after prior failures, attempts could be 4 or 5
+      const err = new ThreadsApiError("NETWORK_ERROR", "Connection reset", 503);
+      const decision4 = determineRetryDecision(4, err);
+      expect(decision4.shouldRetry).toBe(false);
+      expect(decision4.nextStatus).toBe("FAILED");
+
+      const decision5 = determineRetryDecision(5, err);
+      expect(decision5.shouldRetry).toBe(false);
+      expect(decision5.nextStatus).toBe("FAILED");
+    });
   });
 });

@@ -134,29 +134,36 @@ This guarantees that two racing workers will never claim or publish the same pos
 ### Scheduler Endpoint (`/api/internal/scheduler/run`)
 
 The scheduler runs statelessly via an HTTP endpoint:
-- **Path**: `POST /api/internal/scheduler/run` (also supports `GET` for Vercel Cron)
-- **Authentication**: Requires `Authorization: Bearer <CRON_SECRET>` or active admin session. Comparison uses constant-time `crypto.timingSafeEqual`.
-- **Response**: Sanitized JSON execution summary:
+- **Path**: `POST /api/internal/scheduler/run`
+- **Authentication**: Requires ONLY `Authorization: Bearer <CRON_SECRET>`. Secrets are **never** accepted via URL query parameters (`?cron_secret=...`) or custom headers to prevent token leakage in server logs, analytics, or proxies. Comparison uses constant-time `crypto.timingSafeEqual`.
+- **Concurrency & Atomicity**: Atomic claiming using PostgreSQL `FOR UPDATE SKIP LOCKED`. Multiple concurrent workers will never claim or publish the same scheduled post.
+- **Stale Claim Recovery**: Posts stuck in `PUBLISHING` status for longer than 10 minutes (due to crashed containers or serverless timeouts) are safely recovered to `FAILED` with error code `STALE_PUBLISHING_TIMEOUT`. They are never blindly republished to guarantee no duplicate posts on Threads API.
+- **Response**: Sanitized JSON execution summary with safe counters:
   ```json
   {
     "ok": true,
     "claimed": 2,
     "published": 2,
+    "rescheduled": 0,
     "failed": 0,
-    "retried": 0,
+    "staleRecovered": 0,
     "durationMs": 420
   }
   ```
 
-#### How to Trigger Locally
+#### How to Trigger via CLI
 ```bash
-curl -X POST http://localhost:3000/api/internal/scheduler/run \
-  -H "Authorization: Bearer your_cron_secret"
+curl -X POST https://affthread-chi.vercel.app/api/internal/scheduler/run \
+  -H "Authorization: Bearer <YOUR_CRON_SECRET>"
 ```
 
-#### Production Cron Setup
-- **Vercel Cron**: Configured in `vercel.json`. Add `CRON_SECRET` to Vercel Environment Variables.
-- **External Cron / GitHub Actions**: Send an authenticated `POST` request to `https://<your-app>.vercel.app/api/internal/scheduler/run` every 1-5 minutes with `Authorization: Bearer <CRON_SECRET>`.
+#### Automated Periodic Execution (GitHub Actions)
+The primary automated scheduler is configured via GitHub Actions (`.github/workflows/scheduler.yml`) running every 15 minutes:
+- **Fail-Closed**: If `CRON_SECRET` is missing in GitHub repository secrets, the workflow terminates immediately with an error without calling the endpoint anonymously.
+- **Fail-On-HTTP-Error**: The workflow uses `curl --fail` so any 4xx or 5xx response immediately triggers a job failure alert.
+- **Required Repository Secrets**:
+  - `CRON_SECRET`: Required. Must match the production `CRON_SECRET` environment variable.
+  - `APP_URL`: Optional. Defaults to `https://affthread-chi.vercel.app`.
 
 ---
 
@@ -222,5 +229,4 @@ curl -X POST http://localhost:3000/api/internal/scheduler/run \
    - `THREADS_TOKEN_ENCRYPTION_KEY` (generate with `node scripts/generate-key.mjs`)
    - `CRON_SECRET` (generate with `node scripts/generate-key.mjs` for scheduler authentication)
    - `DATABASE_URL` (pointing to a production serverless PostgreSQL like Neon or Supabase)
-4. Deploy the project. Database tables and scheduling indexes will automatically initialize idempotently on startup.
-
+4. Run migrations using `npm run db:migrate` against the database. Committed migrations in `src/db/migrations` are the single source of truth. Application runtime assumes the deployed schema is migrated and avoids runtime DDL mutations.

@@ -170,5 +170,63 @@ describe.skipIf(!isDbReachable)(
       expect(duePostDb.status).toBe("PUBLISHING");
       expect(duePostDb.publish_attempts).toBe(1);
     });
+
+    it("recovers stale PUBLISHING claims to FAILED and protects against blind duplicate publish", async () => {
+      const staleId = "post-stale-004";
+      const activePublishingId = "post-active-pub-005";
+
+      // Seed 1 stale post in PUBLISHING (> 10m ago) and 1 active post in PUBLISHING (< 10m ago)
+      await sql.unsafe(`
+        INSERT INTO "${TEST_SCHEMA}"."posts" (
+          id, account_id, account_threads_user_id, account_username, account_display_name,
+          text, status, last_attempt_at, publish_attempts
+        ) VALUES
+        (
+          '${staleId}', 'acc-conc-001', 'uid-conc-001', 'concurrency_tester', 'Concurrency Tester',
+          'Stale stuck post', 'PUBLISHING', NOW() - INTERVAL '15 minutes', 1
+        ),
+        (
+          '${activePublishingId}', 'acc-conc-001', 'uid-conc-001', 'concurrency_tester', 'Concurrency Tester',
+          'Active publishing post', 'PUBLISHING', NOW() - INTERVAL '1 minute', 1
+        );
+      `);
+
+      // Execute exact stale claim recovery query (conservative 10-minute threshold)
+      const recovered = await sql.unsafe<{ id: string }[]>(`
+        UPDATE "${TEST_SCHEMA}"."posts"
+        SET
+          status = 'FAILED',
+          failed_at = NOW(),
+          error_code = 'STALE_PUBLISHING_TIMEOUT',
+          error_message = 'Publish attempt timed out or worker died in PUBLISHING status. Flagged as FAILED to prevent duplicate publishing. Manual operator review required.',
+          last_error = 'Publish attempt timed out or worker died in PUBLISHING status. Flagged as FAILED to prevent duplicate publishing. Manual operator review required.',
+          updated_at = NOW()
+        WHERE status = 'PUBLISHING'
+          AND last_attempt_at <= NOW() - INTERVAL '10 minutes'
+        RETURNING id;
+      `);
+
+      // Exactly 1 post must be recovered
+      expect(recovered.length).toBe(1);
+      expect(recovered[0].id).toBe(staleId);
+
+      // Verify the stale post was safely transitioned to FAILED (requiring operator review, NOT blindly republished)
+      const [stalePostDb] = await sql.unsafe<{
+        status: string;
+        error_code: string;
+        failed_at: string | null;
+      }[]>(`
+        SELECT status, error_code, failed_at FROM "${TEST_SCHEMA}"."posts" WHERE id = '${staleId}'
+      `);
+      expect(stalePostDb.status).toBe("FAILED");
+      expect(stalePostDb.error_code).toBe("STALE_PUBLISHING_TIMEOUT");
+      expect(stalePostDb.failed_at).not.toBeNull();
+
+      // Verify active post was untouched
+      const [activePostDb] = await sql.unsafe<{ status: string }[]>(`
+        SELECT status FROM "${TEST_SCHEMA}"."posts" WHERE id = '${activePublishingId}'
+      `);
+      expect(activePostDb.status).toBe("PUBLISHING");
+    });
   }
 );
