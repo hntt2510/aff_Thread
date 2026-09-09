@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (err) {
+    console.error("[Auth Login Error]", err);
     return NextResponse.json(
       { error: "An error occurred during authentication" },
       { status: 500 }
