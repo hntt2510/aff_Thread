@@ -7,6 +7,8 @@ const replaceSchema = z.object({
   accessToken: z.string().min(1, "Access token is required"),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

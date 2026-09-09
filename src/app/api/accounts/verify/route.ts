@@ -7,6 +7,8 @@ const verifySchema = z.object({
   accessToken: z.string().min(1, "Access token is required"),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

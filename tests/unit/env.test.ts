@@ -27,6 +27,39 @@ describe("Environment Validation", () => {
     expect(env.DATABASE_URL).toContain("postgresql://");
   });
 
+  it("defaults ADMIN_USERNAME to 'admin' when empty string or whitespace", () => {
+    process.env.ADMIN_USERNAME = "";
+    process.env.ADMIN_PASSWORD_HASH = "salt:hash";
+    process.env.SESSION_SECRET = "12345678901234567890123456789012";
+    process.env.THREADS_TOKEN_ENCRYPTION_KEY =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
+
+    const env = getEnv();
+    expect(env.ADMIN_USERNAME).toBe("admin");
+
+    resetEnvCache();
+    process.env.ADMIN_USERNAME = "   ";
+    const env2 = getEnv();
+    expect(env2.ADMIN_USERNAME).toBe("admin");
+  });
+
+  it("trims whitespace from environment variables", () => {
+    process.env.ADMIN_USERNAME = "  custom_admin  ";
+    process.env.ADMIN_PASSWORD_HASH = "  salt:hash  ";
+    process.env.SESSION_SECRET = "  12345678901234567890123456789012  ";
+    process.env.THREADS_TOKEN_ENCRYPTION_KEY =
+      "  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  ";
+    process.env.DATABASE_URL = "  postgresql://user:pass@localhost:5432/db  ";
+
+    const env = getEnv();
+    expect(env.ADMIN_USERNAME).toBe("custom_admin");
+    expect(env.ADMIN_PASSWORD_HASH).toBe("salt:hash");
+    expect(env.SESSION_SECRET).toBe("12345678901234567890123456789012");
+    expect(env.THREADS_TOKEN_ENCRYPTION_KEY).toBe("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    expect(env.DATABASE_URL).toBe("postgresql://user:pass@localhost:5432/db");
+  });
+
   it("throws error when SESSION_SECRET is too short (< 32 chars)", () => {
     process.env.ADMIN_USERNAME = "admin";
     process.env.ADMIN_PASSWORD_HASH = "salt:hash";
