@@ -158,7 +158,7 @@ curl -X POST https://affthread-chi.vercel.app/api/internal/scheduler/run \
 ```
 
 #### Automated Periodic Execution (GitHub Actions)
-The primary automated scheduler is configured via GitHub Actions (`.github/workflows/scheduler.yml`) running every 15 minutes:
+The primary automated scheduler is configured via GitHub Actions (`.github/workflows/scheduler.yml`) running every 5 minutes:
 - **Fail-Closed**: If `CRON_SECRET` is missing in GitHub repository secrets, the workflow terminates immediately with an error without calling the endpoint anonymously.
 - **Fail-On-HTTP-Error**: The workflow uses `curl --fail` so any 4xx or 5xx response immediately triggers a job failure alert.
 - **Required Repository Secrets**:
