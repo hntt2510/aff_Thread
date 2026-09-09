@@ -44,7 +44,8 @@ export class ReplyPublisherService {
         .where(
           and(
             inArray(affiliateReplies.status, ["READY", "PENDING"]),
-            or(isNull(affiliateReplies.scheduledAt), lte(affiliateReplies.scheduledAt, now))
+            or(isNull(affiliateReplies.scheduledAt), lte(affiliateReplies.scheduledAt, now)),
+            or(isNull(affiliateReplies.nextEligibleAt), lte(affiliateReplies.nextEligibleAt, now))
           )
         )
         .orderBy(affiliateReplies.sequenceNo, affiliateReplies.createdAt)
@@ -262,6 +263,23 @@ export class ReplyPublisherService {
           lastError: null,
         })
         .where(eq(affiliateReplies.id, reply.id));
+
+      // Advance next sequential reply with deterministic nextEligibleAt cooldown
+      const nextEligibleTime = new Date(publishedAt.getTime() + this.minReplyCooldownMs);
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "READY",
+          nextEligibleAt: nextEligibleTime,
+          updatedAt: publishedAt,
+        })
+        .where(
+          and(
+            eq(affiliateReplies.monetizationPlanId, reply.monetizationPlanId),
+            eq(affiliateReplies.sequenceNo, reply.sequenceNo + 1),
+            eq(affiliateReplies.status, "PENDING")
+          )
+        );
 
       // Update plan and post monetization states
       await this.updatePlanAndPostStateAfterPublish(reply.monetizationPlanId, reply.postId);

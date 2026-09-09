@@ -10,6 +10,7 @@ export interface SchemaInspectionResult {
   is0003Applied: boolean;
   is0004Applied: boolean;
   is0005Applied: boolean;
+  is0006Applied: boolean;
   schemaObjects: {
     postsMediaType: boolean;
     postsProcessingStatus: boolean;
@@ -27,6 +28,11 @@ export interface SchemaInspectionResult {
     affiliateRepliesTable: boolean;
     affiliateReplyLinksTable: boolean;
     monetizationRunsTable: boolean;
+    affiliateProductsTable: boolean;
+    affiliateProductOffersTable: boolean;
+    affiliatePerformanceSnapshotsTable: boolean;
+    weeklyProductPoolTable: boolean;
+    productDealObservationsTable: boolean;
   };
   allObjectsExist: boolean;
 }
@@ -80,7 +86,8 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     const tableRows = await db.execute(
       sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN (
         'post_media', 'media_assets', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs',
-        'post_insight_snapshots', 'post_monetization_state', 'monetization_plans', 'affiliate_replies', 'affiliate_reply_links', 'monetization_runs'
+        'post_insight_snapshots', 'post_monetization_state', 'monetization_plans', 'affiliate_replies', 'affiliate_reply_links', 'monetization_runs',
+        'affiliate_products', 'affiliate_product_offers', 'affiliate_performance_snapshots', 'weekly_product_pool', 'product_deal_observations'
       )`
     );
     existingTables = (tableRows as unknown as Array<{ table_name: string }>).map((r) => r.table_name);
@@ -104,6 +111,11 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   const affiliateRepliesTable = existingTables.includes("affiliate_replies");
   const affiliateReplyLinksTable = existingTables.includes("affiliate_reply_links");
   const monetizationRunsTable = existingTables.includes("monetization_runs");
+  const affiliateProductsTable = existingTables.includes("affiliate_products");
+  const affiliateProductOffersTable = existingTables.includes("affiliate_product_offers");
+  const affiliatePerformanceSnapshotsTable = existingTables.includes("affiliate_performance_snapshots");
+  const weeklyProductPoolTable = existingTables.includes("weekly_product_pool");
+  const productDealObservationsTable = existingTables.includes("product_deal_observations");
 
   const is0003Applied = appliedMigrations.some(
     (m) => m.created_at === "1788942355838" || m.hash.startsWith("d6a4cc0d")
@@ -115,6 +127,10 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
 
   const is0005Applied = appliedMigrations.some(
     (m) => m.created_at === "1788958130814"
+  );
+
+  const is0006Applied = appliedMigrations.some(
+    (m) => m.created_at === "1788959866078"
   );
 
   const allObjectsExist =
@@ -133,13 +149,19 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     monetizationPlansTable &&
     affiliateRepliesTable &&
     affiliateReplyLinksTable &&
-    monetizationRunsTable;
+    monetizationRunsTable &&
+    affiliateProductsTable &&
+    affiliateProductOffersTable &&
+    affiliatePerformanceSnapshotsTable &&
+    weeklyProductPoolTable &&
+    productDealObservationsTable;
 
   return {
     appliedMigrations,
     is0003Applied,
     is0004Applied,
     is0005Applied,
+    is0006Applied,
     schemaObjects: {
       postsMediaType,
       postsProcessingStatus,
@@ -157,6 +179,11 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
       affiliateRepliesTable,
       affiliateReplyLinksTable,
       monetizationRunsTable,
+      affiliateProductsTable,
+      affiliateProductOffersTable,
+      affiliatePerformanceSnapshotsTable,
+      weeklyProductPoolTable,
+      productDealObservationsTable,
     },
     allObjectsExist,
   };

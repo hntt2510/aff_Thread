@@ -144,5 +144,45 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"post_monetization_state_score_idx\" ON \"post_monetization_state\" USING btree (\"current_score\");",
       "CREATE INDEX \"post_monetization_state_last_eval_idx\" ON \"post_monetization_state\" USING btree (\"last_evaluated_at\");"
     ]
+  },
+  {
+    "tag": "0006_even_may_parker",
+    "folderMillis": 1788959866078,
+    "bps": true,
+    "hash": "f45ee443cea3a3c88be8913ef1db8d75650d218ce5167cd36cc160bbe11df64b",
+    "sql": [
+      "CREATE TABLE \"affiliate_performance_snapshots\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"product_id\" text,\n\t\"offer_id\" text,\n\t\"period_start\" timestamp with time zone NOT NULL,\n\t\"period_end\" timestamp with time zone NOT NULL,\n\t\"clicks\" integer,\n\t\"orders\" integer,\n\t\"items_sold\" integer,\n\t\"order_amount\" integer,\n\t\"estimated_commission\" integer,\n\t\"source\" text DEFAULT 'SHOPEE_REPORT' NOT NULL,\n\t\"captured_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"affiliate_product_offers\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"product_id\" text NOT NULL,\n\t\"captured_week\" text NOT NULL,\n\t\"captured_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"affiliate_url\" text NOT NULL,\n\t\"commission_rate\" text,\n\t\"commission_amount\" integer,\n\t\"sold_count\" integer,\n\t\"source\" text DEFAULT 'MANUAL_IMPORT' NOT NULL,\n\t\"source_metadata_json\" text,\n\t\"is_active\" boolean DEFAULT true NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"affiliate_products\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"provider\" text DEFAULT 'SHOPEE' NOT NULL,\n\t\"external_product_id\" text,\n\t\"shop_id\" text,\n\t\"title\" text NOT NULL,\n\t\"normalized_title\" text,\n\t\"category\" text,\n\t\"product_url\" text NOT NULL,\n\t\"image_url\" text,\n\t\"currency\" text DEFAULT 'VND' NOT NULL,\n\t\"is_active\" boolean DEFAULT true NOT NULL,\n\t\"first_seen_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"last_seen_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"product_deal_observations\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"product_id\" text NOT NULL,\n\t\"offer_id\" text,\n\t\"observed_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"observed_price\" integer,\n\t\"original_price\" integer,\n\t\"currency\" text DEFAULT 'VND' NOT NULL,\n\t\"direct_discount_percent\" text,\n\t\"direct_discount_amount\" integer,\n\t\"voucher_code\" text,\n\t\"voucher_type\" text,\n\t\"voucher_discount_type\" text,\n\t\"voucher_discount_percent\" text,\n\t\"voucher_discount_amount\" integer,\n\t\"voucher_max_discount\" integer,\n\t\"voucher_min_spend\" integer,\n\t\"voucher_valid_from\" timestamp with time zone,\n\t\"voucher_valid_until\" timestamp with time zone,\n\t\"flash_sale\" boolean,\n\t\"free_shipping\" boolean,\n\t\"availability_status\" text,\n\t\"source\" text DEFAULT 'MANUAL' NOT NULL,\n\t\"confidence\" text DEFAULT '1.00',\n\t\"raw_metadata_json\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE TABLE \"weekly_product_pool\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"week_start\" text NOT NULL,\n\t\"product_id\" text NOT NULL,\n\t\"offer_id\" text,\n\t\"rank\" integer NOT NULL,\n\t\"catalog_score\" integer DEFAULT 0 NOT NULL,\n\t\"reason_json\" text,\n\t\"selected_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"next_eligible_at\" timestamp with time zone;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"deal_observation_id\" text;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"price_calculation_snapshot\" text;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"requires_revalidation\" boolean DEFAULT false;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"last_validated_at\" timestamp with time zone;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN \"validation_status\" text DEFAULT 'NOT_REQUIRED';",
+      "ALTER TABLE \"affiliate_performance_snapshots\" ADD CONSTRAINT \"affiliate_performance_snapshots_product_id_affiliate_products_id_fk\" FOREIGN KEY (\"product_id\") REFERENCES \"public\".\"affiliate_products\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "ALTER TABLE \"affiliate_performance_snapshots\" ADD CONSTRAINT \"affiliate_performance_snapshots_offer_id_affiliate_product_offers_id_fk\" FOREIGN KEY (\"offer_id\") REFERENCES \"public\".\"affiliate_product_offers\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "ALTER TABLE \"affiliate_product_offers\" ADD CONSTRAINT \"affiliate_product_offers_product_id_affiliate_products_id_fk\" FOREIGN KEY (\"product_id\") REFERENCES \"public\".\"affiliate_products\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"product_deal_observations\" ADD CONSTRAINT \"product_deal_observations_product_id_affiliate_products_id_fk\" FOREIGN KEY (\"product_id\") REFERENCES \"public\".\"affiliate_products\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"product_deal_observations\" ADD CONSTRAINT \"product_deal_observations_offer_id_affiliate_product_offers_id_fk\" FOREIGN KEY (\"offer_id\") REFERENCES \"public\".\"affiliate_product_offers\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "ALTER TABLE \"weekly_product_pool\" ADD CONSTRAINT \"weekly_product_pool_product_id_affiliate_products_id_fk\" FOREIGN KEY (\"product_id\") REFERENCES \"public\".\"affiliate_products\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"weekly_product_pool\" ADD CONSTRAINT \"weekly_product_pool_offer_id_affiliate_product_offers_id_fk\" FOREIGN KEY (\"offer_id\") REFERENCES \"public\".\"affiliate_product_offers\"(\"id\") ON DELETE set null ON UPDATE no action;",
+      "CREATE INDEX \"affiliate_perf_product_period_idx\" ON \"affiliate_performance_snapshots\" USING btree (\"product_id\",\"period_start\");",
+      "CREATE INDEX \"affiliate_perf_period_start_idx\" ON \"affiliate_performance_snapshots\" USING btree (\"period_start\");",
+      "CREATE INDEX \"affiliate_product_offers_product_week_idx\" ON \"affiliate_product_offers\" USING btree (\"product_id\",\"captured_week\");",
+      "CREATE INDEX \"affiliate_product_offers_captured_week_idx\" ON \"affiliate_product_offers\" USING btree (\"captured_week\");",
+      "CREATE INDEX \"affiliate_product_offers_product_id_idx\" ON \"affiliate_product_offers\" USING btree (\"product_id\");",
+      "CREATE INDEX \"affiliate_products_provider_ext_idx\" ON \"affiliate_products\" USING btree (\"provider\",\"external_product_id\");",
+      "CREATE INDEX \"affiliate_products_category_idx\" ON \"affiliate_products\" USING btree (\"category\");",
+      "CREATE INDEX \"affiliate_products_is_active_idx\" ON \"affiliate_products\" USING btree (\"is_active\");",
+      "CREATE INDEX \"affiliate_products_created_at_idx\" ON \"affiliate_products\" USING btree (\"created_at\");",
+      "CREATE INDEX \"deal_obs_product_observed_idx\" ON \"product_deal_observations\" USING btree (\"product_id\",\"observed_at\");",
+      "CREATE INDEX \"deal_obs_observed_at_idx\" ON \"product_deal_observations\" USING btree (\"observed_at\");",
+      "CREATE INDEX \"weekly_product_pool_week_rank_idx\" ON \"weekly_product_pool\" USING btree (\"week_start\",\"rank\");",
+      "CREATE INDEX \"weekly_product_pool_week_product_idx\" ON \"weekly_product_pool\" USING btree (\"week_start\",\"product_id\");",
+      "CREATE INDEX \"affiliate_replies_next_eligible_idx\" ON \"affiliate_replies\" USING btree (\"next_eligible_at\");"
+    ]
   }
 ];

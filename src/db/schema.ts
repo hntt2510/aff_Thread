@@ -303,6 +303,12 @@ export const affiliateReplies = pgTable("affiliate_replies", {
   lastError: text("last_error"),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   publishedAt: timestamp("published_at", { withTimezone: true }),
+  nextEligibleAt: timestamp("next_eligible_at", { withTimezone: true }),
+  dealObservationId: text("deal_observation_id"),
+  priceCalculationSnapshot: text("price_calculation_snapshot"),
+  requiresRevalidation: boolean("requires_revalidation").default(false),
+  lastValidatedAt: timestamp("last_validated_at", { withTimezone: true }),
+  validationStatus: text("validation_status").default("NOT_REQUIRED"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -310,6 +316,7 @@ export const affiliateReplies = pgTable("affiliate_replies", {
   index("affiliate_replies_post_idx").on(table.postId),
   index("affiliate_replies_status_idx").on(table.status),
   index("affiliate_replies_scheduled_at_idx").on(table.scheduledAt),
+  index("affiliate_replies_next_eligible_idx").on(table.nextEligibleAt),
   index("affiliate_replies_idempotency_key_idx").on(table.idempotencyKey),
 ]);
 
@@ -363,5 +370,127 @@ export type NewAffiliateReplyLink = typeof affiliateReplyLinks.$inferInsert;
 
 export type MonetizationRun = typeof monetizationRuns.$inferSelect;
 export type NewMonetizationRun = typeof monetizationRuns.$inferInsert;
+
+export const affiliateProducts = pgTable("affiliate_products", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  provider: text("provider").notNull().default("SHOPEE"),
+  externalProductId: text("external_product_id"),
+  shopId: text("shop_id"),
+  title: text("title").notNull(),
+  normalizedTitle: text("normalized_title"),
+  category: text("category"),
+  productUrl: text("product_url").notNull(),
+  imageUrl: text("image_url"),
+  currency: text("currency").notNull().default("VND"),
+  isActive: boolean("is_active").notNull().default(true),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_products_provider_ext_idx").on(table.provider, table.externalProductId),
+  index("affiliate_products_category_idx").on(table.category),
+  index("affiliate_products_is_active_idx").on(table.isActive),
+  index("affiliate_products_created_at_idx").on(table.createdAt),
+]);
+
+export const affiliateProductOffers = pgTable("affiliate_product_offers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => affiliateProducts.id, { onDelete: "cascade" }),
+  capturedWeek: text("captured_week").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  affiliateUrl: text("affiliate_url").notNull(),
+  commissionRate: text("commission_rate"),
+  commissionAmount: integer("commission_amount"),
+  soldCount: integer("sold_count"),
+  source: text("source").notNull().default("MANUAL_IMPORT"),
+  sourceMetadataJson: text("source_metadata_json"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_product_offers_product_week_idx").on(table.productId, table.capturedWeek),
+  index("affiliate_product_offers_captured_week_idx").on(table.capturedWeek),
+  index("affiliate_product_offers_product_id_idx").on(table.productId),
+]);
+
+export const affiliatePerformanceSnapshots = pgTable("affiliate_performance_snapshots", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").references(() => affiliateProducts.id, { onDelete: "set null" }),
+  offerId: text("offer_id").references(() => affiliateProductOffers.id, { onDelete: "set null" }),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  clicks: integer("clicks"),
+  orders: integer("orders"),
+  itemsSold: integer("items_sold"),
+  orderAmount: integer("order_amount"),
+  estimatedCommission: integer("estimated_commission"),
+  source: text("source").notNull().default("SHOPEE_REPORT"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("affiliate_perf_product_period_idx").on(table.productId, table.periodStart),
+  index("affiliate_perf_period_start_idx").on(table.periodStart),
+]);
+
+export const weeklyProductPool = pgTable("weekly_product_pool", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  weekStart: text("week_start").notNull(),
+  productId: text("product_id").notNull().references(() => affiliateProducts.id, { onDelete: "cascade" }),
+  offerId: text("offer_id").references(() => affiliateProductOffers.id, { onDelete: "set null" }),
+  rank: integer("rank").notNull(),
+  catalogScore: integer("catalog_score").notNull().default(0),
+  reasonJson: text("reason_json"),
+  selectedAt: timestamp("selected_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("weekly_product_pool_week_rank_idx").on(table.weekStart, table.rank),
+  index("weekly_product_pool_week_product_idx").on(table.weekStart, table.productId),
+]);
+
+export const productDealObservations = pgTable("product_deal_observations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => affiliateProducts.id, { onDelete: "cascade" }),
+  offerId: text("offer_id").references(() => affiliateProductOffers.id, { onDelete: "set null" }),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+  observedPrice: integer("observed_price"),
+  originalPrice: integer("original_price"),
+  currency: text("currency").notNull().default("VND"),
+  directDiscountPercent: text("direct_discount_percent"),
+  directDiscountAmount: integer("direct_discount_amount"),
+  voucherCode: text("voucher_code"),
+  voucherType: text("voucher_type"),
+  voucherDiscountType: text("voucher_discount_type"),
+  voucherDiscountPercent: text("voucher_discount_percent"),
+  voucherDiscountAmount: integer("voucher_discount_amount"),
+  voucherMaxDiscount: integer("voucher_max_discount"),
+  voucherMinSpend: integer("voucher_min_spend"),
+  voucherValidFrom: timestamp("voucher_valid_from", { withTimezone: true }),
+  voucherValidUntil: timestamp("voucher_valid_until", { withTimezone: true }),
+  flashSale: boolean("flash_sale"),
+  freeShipping: boolean("free_shipping"),
+  availabilityStatus: text("availability_status"),
+  source: text("source").notNull().default("MANUAL"),
+  confidence: text("confidence").default("1.00"),
+  rawMetadataJson: text("raw_metadata_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("deal_obs_product_observed_idx").on(table.productId, table.observedAt),
+  index("deal_obs_observed_at_idx").on(table.observedAt),
+]);
+
+export type AffiliateProduct = typeof affiliateProducts.$inferSelect;
+export type NewAffiliateProduct = typeof affiliateProducts.$inferInsert;
+
+export type AffiliateProductOffer = typeof affiliateProductOffers.$inferSelect;
+export type NewAffiliateProductOffer = typeof affiliateProductOffers.$inferInsert;
+
+export type AffiliatePerformanceSnapshot = typeof affiliatePerformanceSnapshots.$inferSelect;
+export type NewAffiliatePerformanceSnapshot = typeof affiliatePerformanceSnapshots.$inferInsert;
+
+export type WeeklyProductPoolItem = typeof weeklyProductPool.$inferSelect;
+export type NewWeeklyProductPoolItem = typeof weeklyProductPool.$inferInsert;
+
+export type ProductDealObservation = typeof productDealObservations.$inferSelect;
+export type NewProductDealObservation = typeof productDealObservations.$inferInsert;
+
 
 

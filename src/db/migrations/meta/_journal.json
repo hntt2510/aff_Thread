@@ -43,6 +43,13 @@
       "when": 1788958130814,
       "tag": "0005_dusty_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788959866078,
+      "tag": "0006_even_may_parker",
+      "breakpoints": true
     }
   ]
 }

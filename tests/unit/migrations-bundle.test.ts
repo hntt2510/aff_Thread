@@ -63,4 +63,17 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('CREATE TABLE "affiliate_reply_links"');
     expect(allStatements).toContain('CREATE TABLE "monetization_runs"');
   });
+
+  it("includes migration 0006 with Shopee Deal Intelligence tables and reply fields", () => {
+    const mig0006 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0006_even_may_parker");
+    expect(mig0006).toBeDefined();
+
+    const allStatements = mig0006!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "affiliate_products"');
+    expect(allStatements).toContain('CREATE TABLE "affiliate_product_offers"');
+    expect(allStatements).toContain('CREATE TABLE "affiliate_performance_snapshots"');
+    expect(allStatements).toContain('CREATE TABLE "weekly_product_pool"');
+    expect(allStatements).toContain('CREATE TABLE "product_deal_observations"');
+    expect(allStatements).toContain('ALTER TABLE "affiliate_replies" ADD COLUMN "next_eligible_at"');
+  });
 });
