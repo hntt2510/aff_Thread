@@ -53,36 +53,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    let rawList: RawShopeeProductItem[] = [];
-
-    if (Array.isArray(body)) {
-      rawList = body;
-    } else if (Array.isArray(body.list)) {
-      rawList = body.list;
-    } else if (Array.isArray(body.data?.list)) {
-      rawList = body.data.list;
-    } else if (Array.isArray(body.data)) {
-      rawList = body.data;
-    } else if (typeof body.jsonContent === "string") {
-      try {
-        const parsed = JSON.parse(body.jsonContent.trim());
-        if (Array.isArray(parsed)) {
-          rawList = parsed;
-        } else if (Array.isArray(parsed.data?.list)) {
-          rawList = parsed.data.list;
-        } else if (Array.isArray(parsed.list)) {
-          rawList = parsed.list;
-        }
-      } catch {
-        return NextResponse.json(
-          { success: false, error: "Invalid JSON string provided in jsonContent" },
-          { status: 400 }
-        );
-      }
-    } else if (body.item_id || body.batch_item_for_item_card_full) {
-      // Single item
-      rawList = [body];
-    }
+    const rawList: RawShopeeProductItem[] = shopeeTopOffersService.extractProductList(body);
 
     if (rawList.length === 0) {
       return NextResponse.json(

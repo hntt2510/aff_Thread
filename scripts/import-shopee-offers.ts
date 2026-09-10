@@ -144,11 +144,7 @@ async function fetchFromShopeeApi(cookie: string, limit = 50): Promise<RawShopee
 }
 
 function extractItemsFromJson(content: any): RawShopeeProductItem[] {
-  if (Array.isArray(content)) return content;
-  if (Array.isArray(content?.data?.list)) return content.data.list;
-  if (Array.isArray(content?.list)) return content.list;
-  if (Array.isArray(content?.data)) return content.data;
-  return [];
+  return shopeeTopOffersService.extractProductList(content);
 }
 
 async function main() {

@@ -9,22 +9,109 @@ import { normalizeVietnameseText } from "./relevance-evaluator.service";
 import { getCurrentIsoWeek } from "./weekly-pool.service";
 
 export interface RawShopeeProductItem {
-  item_id?: string;
+  item_id?: string | number;
+  itemid?: string | number;
+  itemId?: string | number;
+  title?: string;
+  name?: string;
   long_link?: string;
   product_link?: string;
-  default_commission_rate?: string;
-  seller_commission_rate?: string;
+  productUrl?: string;
+  affUrl?: string;
+  affiliate_url?: string;
+  url?: string;
+  default_commission_rate?: string | number;
+  commission_rate?: string | number;
+  seller_commission_rate?: string | number;
+  rate?: string | number;
+  sellerRate?: string | number;
+  price?: string | number;
+  price_before_discount?: string | number;
+  originalPrice?: string | number;
+  original_price?: string | number;
+  discount?: string;
+  image?: string;
+  imageUrl?: string;
+  image_url?: string;
+  historical_sold_text?: string | number;
+  sold?: string | number;
+  sold_count?: string | number;
+  soldCount?: string | number;
+  shop_name?: string;
+  shopName?: string;
+  rating?: number;
+  item_rating?: { rating_star?: number };
   batch_item_for_item_card_full?: {
-    itemid?: string;
+    itemid?: string | number;
     name?: string;
+    title?: string;
     price?: string | number;
     price_before_discount?: string | number;
     discount?: string;
     image?: string;
-    historical_sold_text?: string;
+    imageUrl?: string;
+    historical_sold_text?: string | number;
+    sold?: string | number;
     shop_name?: string;
     item_rating?: { rating_star?: number };
+    [key: string]: any;
   };
+  [key: string]: any;
+}
+
+/**
+ * Trích xuất danh sách sản phẩm linh hoạt từ nhiều định dạng JSON Shopee khác nhau
+ */
+export function extractProductList(rawInput: any): any[] {
+  let data = rawInput;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data.trim());
+    } catch {
+      return [];
+    }
+  }
+
+  // Handle common wrappers from API body / UI payloads (e.g. { rawData: ... } or { jsonContent: ... })
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if (data.rawData !== undefined) {
+      const extracted = extractProductList(data.rawData);
+      if (extracted.length > 0) return extracted;
+    }
+    if (data.jsonContent !== undefined) {
+      const extracted = extractProductList(data.jsonContent);
+      if (extracted.length > 0) return extracted;
+    }
+  }
+
+  // 1. Dạng mảng trực tiếp
+  if (Array.isArray(data)) return data;
+
+  // 2. Dạng response chuẩn { code: 0, data: { list: [...] } }
+  if (Array.isArray(data?.data?.list)) return data.data.list;
+
+  // 3. Dạng response { list: [...] }
+  if (Array.isArray(data?.list)) return data.list;
+
+  // 4. Dạng { data: { products: [...] } } hoặc { products: [...] }
+  if (Array.isArray(data?.data?.products)) return data.data.products;
+  if (Array.isArray(data?.products)) return data.products;
+
+  // 5. Dạng { data: { items: [...] } } hoặc { items: [...] }
+  if (Array.isArray(data?.data?.items)) return data.data.items;
+  if (Array.isArray(data?.items)) return data.items;
+
+  // 6. Dạng { data: [...] }
+  if (Array.isArray(data?.data)) return data.data;
+
+  // 7. Single item
+  if (data && typeof data === "object") {
+    if (data.item_id || data.itemid || data.itemId || data.batch_item_for_item_card_full) {
+      return [data];
+    }
+  }
+
+  return [];
 }
 
 export interface MappedShopeeOffer {
@@ -58,49 +145,136 @@ export class ShopeeTopOffersService {
    * Transforms a single raw Shopee REST API item into normalized MappedShopeeOffer
    */
   transformShopeeOffer(item: RawShopeeProductItem): MappedShopeeOffer {
-    const card = item.batch_item_for_item_card_full || {};
+    // Thông tin chi tiết: ưu tiên item.batch_item_for_item_card_full, nếu không có thì fallback sang chính item
+    const card = item.batch_item_for_item_card_full || item || {};
 
-    const rawId = item.item_id || card.itemid || "";
+    // item_id lấy từ: item.item_id || item.itemid || item.batch_item_for_item_card_full?.itemid
+    const rawId =
+      item.item_id ??
+      item.itemid ??
+      item.itemId ??
+      item.batch_item_for_item_card_full?.itemid ??
+      card.itemid ??
+      card.itemId ??
+      "";
     const itemId = String(rawId).trim();
-    const title = String(card.name || "").trim() || `Sản phẩm #${itemId}`;
 
-    // Price conversion: Shopee micro-currency / 100000
-    // Example: "9520000000" -> 95200 VND
-    const rawPrice = Number(card.price || 0);
-    const price = rawPrice > 0 ? Math.round(rawPrice / 100000) : 0;
+    const title =
+      String(card.name || card.title || item.title || item.name || "").trim() ||
+      (itemId ? `Sản phẩm #${itemId}` : "");
 
-    const rawOriginalPrice = Number(card.price_before_discount || 0);
-    const originalPrice = rawOriginalPrice > 0 ? Math.round(rawOriginalPrice / 100000) : price;
+    // Price conversion: Shopee micro-currency / 100000 if micro-units
+    let price = 0;
+    if (item.batch_item_for_item_card_full?.price !== undefined) {
+      const rawPrice = Number(item.batch_item_for_item_card_full.price || 0);
+      price = rawPrice > 0 ? (rawPrice >= 100000 ? Math.round(rawPrice / 100000) : rawPrice) : 0;
+    } else {
+      const rawPrice = Number(card.price ?? item.price ?? 0);
+      price = rawPrice > 0 ? (rawPrice >= 10000000 ? Math.round(rawPrice / 100000) : rawPrice) : 0;
+    }
 
-    const discount = String(card.discount || "").trim();
+    let originalPrice = price;
+    if (item.batch_item_for_item_card_full?.price_before_discount !== undefined) {
+      const rawOrig = Number(item.batch_item_for_item_card_full.price_before_discount || 0);
+      originalPrice = rawOrig > 0 ? (rawOrig >= 100000 ? Math.round(rawOrig / 100000) : rawOrig) : price;
+    } else {
+      const rawOrig = Number(
+        card.price_before_discount ??
+        card.original_price ??
+        card.originalPrice ??
+        item.price_before_discount ??
+        item.original_price ??
+        item.originalPrice ??
+        0
+      );
+      originalPrice = rawOrig > 0 ? (rawOrig >= 10000000 ? Math.round(rawOrig / 100000) : rawOrig) : price;
+    }
 
-    // Rate parsing: "21,5%" -> 21.5
-    const rawRateStr = String(item.default_commission_rate || "0")
+    const discount = String(card.discount ?? item.discount ?? "").trim();
+
+    // commission_rate lấy từ: item.default_commission_rate || item.commission_rate || item.seller_commission_rate || "0%"
+    const rawRateStr = String(
+      item.default_commission_rate ??
+      item.commission_rate ??
+      item.seller_commission_rate ??
+      item.rate ??
+      card.commission_rate ??
+      "0%"
+    )
       .replace("%", "")
       .replace(",", ".")
       .trim();
     const rate = Math.round((parseFloat(rawRateStr) || 0) * 100) / 100;
 
-    const rawSellerRateStr = String(item.seller_commission_rate || "0")
+    const rawSellerRateStr = String(
+      item.seller_commission_rate ??
+      item.sellerRate ??
+      card.seller_commission_rate ??
+      "0%"
+    )
       .replace("%", "")
       .replace(",", ".")
       .trim();
     const sellerRate = Math.round((parseFloat(rawSellerRateStr) || 0) * 100) / 100;
 
-    // Image URL via Shopee CDN
-    const imageCode = String(card.image || "").trim();
-    const imageUrl = imageCode
-      ? `https://down-vn.img.susercontent.com/file/${imageCode}`
-      : "";
+    // Image URL via Shopee CDN or direct URL
+    const imageRaw = String(
+      card.image ??
+      card.imageUrl ??
+      item.image ??
+      item.imageUrl ??
+      item.image_url ??
+      ""
+    ).trim();
+    let imageUrl = "";
+    if (imageRaw) {
+      if (imageRaw.startsWith("http://") || imageRaw.startsWith("https://")) {
+        imageUrl = imageRaw;
+      } else {
+        imageUrl = `https://down-vn.img.susercontent.com/file/${imageRaw}`;
+      }
+    }
 
     // Affiliate/Product Link
-    const affUrl = String(item.long_link || item.product_link || "").trim();
+    const affUrl = String(
+      item.long_link ||
+      item.product_link ||
+      item.affUrl ||
+      item.affiliate_url ||
+      item.productUrl ||
+      item.url ||
+      card.affUrl ||
+      card.product_link ||
+      ""
+    ).trim();
 
-    const sold = String(card.historical_sold_text || "0").trim();
+    const sold = String(
+      card.historical_sold_text ??
+      card.sold ??
+      item.historical_sold_text ??
+      item.sold ??
+      item.sold_count ??
+      item.soldCount ??
+      "0"
+    ).trim();
     const soldCount = this.parseSoldCount(sold);
 
-    const rating = Number(card.item_rating?.rating_star) || 5;
-    const shopName = String(card.shop_name || "").trim();
+    const rating = Number(
+      card.item_rating?.rating_star ??
+      card.rating_star ??
+      card.rating ??
+      item.item_rating?.rating_star ??
+      item.rating ??
+      5
+    ) || 5;
+
+    const shopName = String(
+      card.shop_name ??
+      card.shopName ??
+      item.shop_name ??
+      item.shopName ??
+      ""
+    ).trim();
 
     return {
       itemId,
@@ -117,6 +291,10 @@ export class ShopeeTopOffersService {
       rating,
       shopName,
     };
+  }
+
+  extractProductList(rawInput: any): any[] {
+    return extractProductList(rawInput);
   }
 
   /**
