@@ -43,6 +43,3 @@ workers/**/.env*
 !workers/**/.env.example
 
 .env*
-
-# Submodules / Separate clones
-prompt-master/
