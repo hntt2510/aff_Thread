@@ -35,7 +35,7 @@ export const SHOPEE_SELECTORS = {
       'button:has-text("Đăng nhập")',
       'button:has-text("Log In")',
     ],
-    // CAPTCHA / Security Challenge indicators
+    // CAPTCHA / Security Challenge / OTP indicators
     challengeContainer: [
       '.shopee-captcha',
       '.security-verification',
@@ -44,6 +44,9 @@ export const SHOPEE_SELECTORS = {
       'text="Xác minh bảo mật"',
       'text="Security Verification"',
       'text="Trượt để hoàn thành ghép hình"',
+      'text="Xác minh OTP"',
+      'text="Enter verification code"',
+      'input[autocomplete="one-time-code"]',
     ],
   },
 

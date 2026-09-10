@@ -60,17 +60,17 @@ export class ShopeeProductOfferPage {
           }
         }
 
-        // 4. Check for authenticated markers
-        for (const selector of SHOPEE_SELECTORS.session.userAvatar) {
+        // 4. Check for explicit positive authenticated markers (avatar or username)
+        const authenticatedSelectors = [
+          ...SHOPEE_SELECTORS.session.userAvatar,
+          ...SHOPEE_SELECTORS.session.userName,
+        ];
+
+        for (const selector of authenticatedSelectors) {
           const el = await this.page.$(selector).catch(() => null);
           if (el && (await el.isVisible().catch(() => false))) {
             return "READY";
           }
-        }
-
-        // Fallback: if on affiliate portal with no login/challenge markers
-        if (currentUrl.includes("affiliate.shopee.vn") && !currentUrl.includes("/login")) {
-          return "READY";
         }
 
         return "LOGIN_REQUIRED";

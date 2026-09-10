@@ -10,7 +10,10 @@ describe("ShopeeProductOfferPage Extractor with HTML Fixture", () => {
   let offerPage: ShopeeProductOfferPage;
 
   beforeAll(async () => {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+    });
     page = await browser.newPage();
     offerPage = new ShopeeProductOfferPage(page);
 
@@ -20,8 +23,18 @@ describe("ShopeeProductOfferPage Extractor with HTML Fixture", () => {
   });
 
   afterAll(async () => {
-    if (browser) {
-      await browser.close();
+    try {
+      if (page) {
+        await page.close().catch(() => {});
+      }
+      if (browser) {
+        await Promise.race([
+          browser.close(),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]).catch(() => {});
+      }
+    } catch {
+      // ignore
     }
   });
 
