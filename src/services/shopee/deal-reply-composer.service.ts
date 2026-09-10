@@ -218,7 +218,11 @@ export class DealReplyComposerService {
     // Line 2: Shopee Mall/Official trust factor + clear price & shop voucher code
     let trustLine = `Hàng chuẩn Shopee Mall chính hãng, đang sale còn ${formatVnd(finalPrice)}`;
     if (voucherCode) {
-      trustLine += ` (nhớ lưu mã ${voucherCode} để được giảm thêm)`;
+      if (calculation.discountAmount > 0) {
+        trustLine += ` (áp mã shop ${voucherCode} giảm ${formatK(calculation.discountAmount)})`;
+      } else {
+        trustLine += ` (nhớ lưu mã ${voucherCode} để được giảm thêm)`;
+      }
     } else if (calculation.discountAmount > 0) {
       trustLine += ` (tiết kiệm ${formatVnd(calculation.discountAmount)})`;
     }
@@ -268,7 +272,14 @@ export class DealReplyComposerService {
 
     // Line 2: Mention total savings compared to retail
     const savings = Math.max(0, origPrice - finalPrice);
-    const savingsLine = `Giá gốc lẻ tầm ${formatVnd(origPrice)}, gom combo áp voucher sàn còn ~${formatVnd(finalPrice)} cả set (tiết kiệm hơn mua lẻ tầm ${formatVnd(savings)}).`;
+    const rawCode = item.voucherCode ?? calculation.evidence?.voucherCode;
+    const voucherCode = typeof rawCode === "string" ? rawCode.trim() : null;
+    let savingsLine = "";
+    if (voucherCode && calculation.discountAmount > 0) {
+      savingsLine = `Giá gốc lẻ tầm ${formatVnd(origPrice)}, áp mã shop ${voucherCode} giảm ${formatK(calculation.discountAmount)} gom combo còn ~${formatVnd(finalPrice)} cả set (tiết kiệm hơn mua lẻ tầm ${formatVnd(savings)}).`;
+    } else {
+      savingsLine = `Giá gốc lẻ tầm ${formatVnd(origPrice)}, gom combo áp voucher sàn còn ~${formatVnd(finalPrice)} cả set (tiết kiệm hơn mua lẻ tầm ${formatVnd(savings)}).`;
+    }
 
     // Line 3: Clean short affiliate link
     const linkLine = `👉 ${directAffiliateUrl}`;

@@ -279,6 +279,12 @@ function ShopeeDealsContent() {
     return `${val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}đ`;
   };
 
+  const formatK = (val: number | null | undefined): string => {
+    if (val === null || val === undefined || isNaN(val) || val <= 0) return "0k";
+    const k = val / 1000;
+    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+  };
+
   // --- Fetchers ---
   const fetchWeeklyPool = useCallback(async (week?: string) => {
     try {
@@ -1554,7 +1560,12 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
 
                   {item.dealCalculation?.evidence?.voucherCode && (
                     <div className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                      🎟️ Voucher: {item.dealCalculation.evidence.voucherCode}
+                      🎟️ Mã shop: {item.dealCalculation.evidence.voucherCode}
+                      {item.dealCalculation.evidence.voucherDiscountAmount ? (
+                        <span className="text-emerald-700 font-semibold">
+                          (-{formatK(item.dealCalculation.evidence.voucherDiscountAmount)})
+                        </span>
+                      ) : null}
                     </div>
                   )}
 

@@ -15,6 +15,8 @@ import {
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { catalogScoringService } from "./catalog-scoring.service";
 import { extractAndCalculateShopeeDeal } from "./automated-deal-pipeline";
+import { shopeeShopVoucherService } from "./shop-voucher.service";
+import { parseShopeePrice } from "./shopee-top-offers.service";
 
 export interface PoolConfig {
   targetPoolSize?: number; // default 60
@@ -97,6 +99,38 @@ export function getCurrentIsoWeek(date = new Date()): string {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+/**
+ * Extracts shopId from product or metadata or productUrl.
+ */
+export function extractShopId(
+  product: { shopId?: string | null; productUrl?: string | null },
+  meta?: any
+): string | null {
+  if (product.shopId && String(product.shopId).trim()) {
+    return String(product.shopId).trim();
+  }
+  const metaShopId =
+    meta?.shopid ??
+    meta?.shop_id ??
+    meta?.shopId ??
+    meta?.batch_item_for_item_card_full?.shopid ??
+    meta?.batch_item_for_item_card_full?.shop_id ??
+    meta?.raw_data?.shopid;
+  if (metaShopId !== undefined && metaShopId !== null && String(metaShopId).trim()) {
+    return String(metaShopId).trim();
+  }
+  const url = product.productUrl;
+  if (url && typeof url === "string") {
+    const prodMatch = url.match(/product\/(\d+)\/(\d+)/i);
+    if (prodMatch) return prodMatch[1];
+    const iMatch = url.match(/-i\.(\d+)\.(\d+)/i);
+    if (iMatch) return iMatch[1];
+    const qMatch = url.match(/[?&]shop_?id=(\d+)/i);
+    if (qMatch) return qMatch[1];
+  }
+  return null;
 }
 
 export class WeeklyPoolService {
@@ -241,7 +275,37 @@ export class WeeklyPoolService {
       }
     }
 
-    // 4. Persist to weekly_product_pool table (idempotent: delete existing for this week and insert newly ranked)
+    // 4. STAGE 2: Targeted Shop Voucher Enrichment for Top Candidates
+    // Extract unique shopids from the selected pool items (~60 items -> ~25-35 shops)
+    const candidateShopIdMap = new Map<string, string>();
+    for (const cand of selected) {
+      let candMeta: any = {};
+      if (cand.offer?.sourceMetadataJson) {
+        try {
+          candMeta = JSON.parse(cand.offer.sourceMetadataJson);
+        } catch {
+          // ignore
+        }
+      }
+      const sid = extractShopId(cand.product, candMeta);
+      if (sid) {
+        candidateShopIdMap.set(cand.product.id, sid);
+        if (!cand.product.shopId) {
+          db.update(affiliateProducts)
+            .set({ shopId: sid })
+            .where(eq(affiliateProducts.id, cand.product.id))
+            .catch(() => {});
+        }
+      }
+    }
+
+    const uniqueShopIds = Array.from(new Set(candidateShopIdMap.values()));
+    const shopVouchersMap =
+      uniqueShopIds.length > 0
+        ? await shopeeShopVoucherService.getShopVouchersBatch(uniqueShopIds, 3)
+        : new Map<string, any[]>();
+
+    // 5. Persist to weekly_product_pool table (idempotent: delete existing for this week and insert newly ranked)
     await db.delete(weeklyProductPool).where(eq(weeklyProductPool.weekStart, week));
 
     if (selected.length === 0) {
@@ -281,25 +345,56 @@ export class WeeklyPoolService {
           meta.priceBeforeDiscount ??
           rawPrice;
 
+        const shopId = candidateShopIdMap.get(item.product.id);
+        const shopVouchers = shopId ? shopVouchersMap.get(shopId) || [] : [];
+
+        const basePrice = parseShopeePrice(rawPrice);
+        const bestStorefrontVoucher =
+          shopVouchers.length > 0 && basePrice > 0
+            ? shopeeShopVoucherService.findBestVoucher(basePrice, shopVouchers)
+            : null;
+
+        // Determine if storefront voucher beats or provides better discount than rawVoucher
+        let activeVoucherInfo = rawVoucher;
+        let activeVoucherCode = voucherCode;
+
+        if (bestStorefrontVoucher) {
+          const rawVoucherDiscount = rawVoucher?.discount_value
+            ? parseShopeePrice(rawVoucher.discount_value)
+            : 0;
+          if (!activeVoucherCode || bestStorefrontVoucher.discountAmount >= rawVoucherDiscount) {
+            activeVoucherCode = bestStorefrontVoucher.voucherCode;
+            activeVoucherInfo = {
+              voucher_code: bestStorefrontVoucher.voucherCode,
+              discount_value: bestStorefrontVoucher.discountAmount,
+              discount_percentage: bestStorefrontVoucher.discountPercent,
+              min_spend: bestStorefrontVoucher.minSpend,
+              max_discount: bestStorefrontVoucher.maxDiscount,
+              label: bestStorefrontVoucher.label,
+              source: "STOREFRONT_VOUCHER_WALLET",
+            };
+          }
+        }
+
         const dealFacts = extractAndCalculateShopeeDeal({
           price: rawPrice,
           priceBeforeDiscount: rawOrig,
-          voucherInfo: rawVoucher,
-          voucherCode,
+          voucherInfo: activeVoucherInfo,
+          voucherCode: activeVoucherCode,
           commissionRate: item.offer?.commissionRate,
         });
 
         const dealCalculation = dealFacts.calculation;
         const dealOpportunity = dealFacts.dealOpportunity;
         // Priority for estimatedFinalPrice:
-        // 1. If shop voucher gives discount: dealFacts.estimatedFinalPrice (e.g. 353.800đ -> 283.000đ)
-        // 2. If platform voucher gives discount: dealFacts.stackedPricing.finalPrice
+        // 1. Stacked shop + platform voucher: dealFacts.stackedPricing.finalPrice
+        // 2. If shop voucher gives discount: dealFacts.estimatedFinalPrice
         // 3. Fallback: dealFacts.basePrice. It will NEVER be null, undefined, or 0.
         const estimatedFinalPrice =
-          dealFacts.estimatedFinalPrice > 0 && dealFacts.estimatedFinalPrice < dealFacts.basePrice
-            ? dealFacts.estimatedFinalPrice
-            : dealFacts.stackedPricing?.finalPrice && dealFacts.stackedPricing.finalPrice < dealFacts.basePrice
+          dealFacts.stackedPricing?.finalPrice && dealFacts.stackedPricing.finalPrice < dealFacts.basePrice
             ? dealFacts.stackedPricing.finalPrice
+            : dealFacts.estimatedFinalPrice > 0 && dealFacts.estimatedFinalPrice < dealFacts.basePrice
+            ? dealFacts.estimatedFinalPrice
             : dealFacts.basePrice;
 
         // Ensure product_deal_observations has observation for each pool item
@@ -309,7 +404,31 @@ export class WeeklyPoolService {
           .where(eq(productDealObservations.productId, item.product.id))
           .limit(1);
 
-        if (!existingObs && dealCalculation) {
+        if (existingObs && dealCalculation) {
+          await db
+            .update(productDealObservations)
+            .set({
+              observedPrice: dealCalculation.basePrice,
+              originalPrice: dealCalculation.evidence?.originalPrice || dealCalculation.basePrice,
+              voucherCode: dealCalculation.evidence?.voucherCode || null,
+              voucherDiscountType: dealCalculation.evidence?.voucherDiscountType || null,
+              voucherDiscountPercent: dealCalculation.evidence?.voucherDiscountPercent
+                ? String(dealCalculation.evidence.voucherDiscountPercent)
+                : null,
+              voucherDiscountAmount: dealCalculation.evidence?.voucherDiscountAmount || null,
+              voucherMaxDiscount: dealCalculation.evidence?.voucherMaxDiscount || null,
+              voucherMinSpend: dealCalculation.evidence?.voucherMinSpend || null,
+              rawMetadataJson: JSON.stringify({
+                calculation: dealCalculation,
+                dealOpportunity,
+                estimatedFinalPrice,
+                stackedPricing: dealFacts.stackedPricing,
+                shopVoucherEnriched: Boolean(bestStorefrontVoucher),
+                shopId: shopId || null,
+              }),
+            })
+            .where(eq(productDealObservations.id, existingObs.id));
+        } else if (dealCalculation) {
           await db.insert(productDealObservations).values({
             productId: item.product.id,
             offerId: item.offer?.id || null,
@@ -332,6 +451,8 @@ export class WeeklyPoolService {
               dealOpportunity,
               estimatedFinalPrice,
               stackedPricing: dealFacts.stackedPricing,
+              shopVoucherEnriched: Boolean(bestStorefrontVoucher),
+              shopId: shopId || null,
             }),
           });
         }
@@ -350,6 +471,8 @@ export class WeeklyPoolService {
             dealOpportunity,
             estimatedFinalPrice,
             stackedPricing: dealFacts.stackedPricing,
+            shopVoucherEnriched: Boolean(bestStorefrontVoucher),
+            shopId: shopId || null,
           }),
           selectedAt: new Date(),
         };
