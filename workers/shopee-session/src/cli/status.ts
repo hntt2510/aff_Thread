@@ -11,7 +11,7 @@ async function main() {
     const page = await sessionBrowserManager.getPage();
     const offerPage = new ShopeeProductOfferPage(page);
 
-    await offerPage.goto("https://affiliate.shopee.vn");
+    await offerPage.goto("https://affiliate.shopee.vn/offer/product_offer");
     dashboardReachable = true;
 
     const detected = await offerPage.detectSessionState();
@@ -26,7 +26,8 @@ async function main() {
 
   const result = stateMachine.getHealthSummary(
     sessionBrowserManager.getProfileDir(),
-    dashboardReachable
+    dashboardReachable,
+    sessionBrowserManager.getChromeExecutablePath() || undefined
   );
 
   console.log(JSON.stringify(result, null, 2));

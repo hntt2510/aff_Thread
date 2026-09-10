@@ -26,6 +26,25 @@ export const SHOPEE_SELECTORS = {
       '.user-name',
       '.affiliate-user-name',
     ],
+    // Combined authoritative authenticated markers
+    authenticatedMarkers: [
+      '[data-testid="user-avatar"]',
+      '.user-profile-avatar',
+      '.shopee-affiliate-avatar',
+      'img[alt="avatar"]',
+      '.navbar-user-avatar',
+      '[data-testid="username"]',
+      '.account-name',
+      '.user-name',
+      '.affiliate-user-name',
+      'button:has-text("Đăng xuất")',
+      'a:has-text("Đăng xuất")',
+      'button:has-text("Log out")',
+      'a:has-text("Log out")',
+      'a[href*="/offer/product_offer"]',
+      '.offer-product-item',
+      '[data-testid="product-card"]',
+    ],
     // Login form indicators
     loginContainer: [
       'form[action*="login"]',
@@ -35,11 +54,13 @@ export const SHOPEE_SELECTORS = {
       'button:has-text("Đăng nhập")',
       'button:has-text("Log In")',
     ],
-    // CAPTCHA / Security Challenge / OTP indicators
+    // CAPTCHA / Security Challenge / OTP / Anti-bot indicators
     challengeContainer: [
       '.shopee-captcha',
       '.security-verification',
       '.captcha-dialog',
+      '.anti-bot',
+      '[data-testid="anti-bot"]',
       'iframe[src*="captcha"]',
       'text="Xác minh bảo mật"',
       'text="Security Verification"',
@@ -47,6 +68,17 @@ export const SHOPEE_SELECTORS = {
       'text="Xác minh OTP"',
       'text="Enter verification code"',
       'input[autocomplete="one-time-code"]',
+      'text="Hệ thống phát hiện truy cập bất thường"',
+      'text="Vui lòng thử lại sau"',
+      'text="Unusual activity"',
+      'text="Bot detected"',
+    ],
+    // Session expired indicators
+    expiredContainer: [
+      'text="Phiên đăng nhập đã hết hạn"',
+      'text="Session expired"',
+      'text="Please log in again"',
+      'text="Vui lòng đăng nhập lại"',
     ],
   },
 

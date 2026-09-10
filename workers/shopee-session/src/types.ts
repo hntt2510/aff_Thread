@@ -16,6 +16,7 @@ export interface SessionHealthResult {
   verifiedAt: string;
   dashboardReachable: boolean;
   profilePath: string;
+  chromeExecutable?: string;
   details?: string;
   errorCategory?: string;
 }

@@ -69,12 +69,17 @@ export class SessionStateMachine {
     return this.currentState === "LOGIN_REQUIRED" || this.currentState === "EXPIRED";
   }
 
-  getHealthSummary(profilePath: string, dashboardReachable = false): SessionHealthResult {
+  getHealthSummary(
+    profilePath: string,
+    dashboardReachable = false,
+    chromeExecutable?: string
+  ): SessionHealthResult {
     return {
       status: this.currentState,
       verifiedAt: this.lastVerifiedAt ? this.lastVerifiedAt.toISOString() : new Date().toISOString(),
       dashboardReachable,
       profilePath,
+      chromeExecutable,
       details: this.lastReason || undefined,
       errorCategory: this.lastErrorCategory || undefined,
     };

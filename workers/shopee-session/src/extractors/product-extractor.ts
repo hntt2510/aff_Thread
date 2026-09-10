@@ -1,6 +1,7 @@
 import { Page } from "playwright";
 import { SHOPEE_SELECTORS } from "./selectors.js";
 import { parseCommissionAmount, parseCommissionRate, parseSoldCount } from "../normalization/normalizer.js";
+import { SessionState } from "../types.js";
 
 export interface RawScrapedProduct {
   externalProductId?: string | null;
@@ -34,17 +35,12 @@ export class ShopeeProductOfferPage {
   /**
    * Evaluates current session state based on rendered markers.
    */
-  async detectSessionState(): Promise<"READY" | "LOGIN_REQUIRED" | "CHALLENGE_REQUIRED"> {
+  async detectSessionState(): Promise<SessionState> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const currentUrl = this.page.url();
 
-        // 1. URL-based quick check
-        if (currentUrl.includes("/login") || currentUrl.includes("/buyer/login")) {
-          return "LOGIN_REQUIRED";
-        }
-
-        // 2. Check for security challenge / captcha
+        // 1. Check for security challenge / captcha / anti-bot
         for (const selector of SHOPEE_SELECTORS.session.challengeContainer) {
           const el = await this.page.$(selector).catch(() => null);
           if (el && (await el.isVisible().catch(() => false))) {
@@ -52,7 +48,20 @@ export class ShopeeProductOfferPage {
           }
         }
 
-        // 3. Check for login form markers
+        // 2. Check for session expired messages
+        for (const selector of SHOPEE_SELECTORS.session.expiredContainer) {
+          const el = await this.page.$(selector).catch(() => null);
+          if (el && (await el.isVisible().catch(() => false))) {
+            return "EXPIRED";
+          }
+        }
+
+        // 3. Check for login URL
+        if (currentUrl && (currentUrl.includes("/login") || currentUrl.includes("/buyer/login"))) {
+          return "LOGIN_REQUIRED";
+        }
+
+        // 4. Check for login form markers
         for (const selector of SHOPEE_SELECTORS.session.loginContainer) {
           const el = await this.page.$(selector).catch(() => null);
           if (el && (await el.isVisible().catch(() => false))) {
@@ -60,17 +69,18 @@ export class ShopeeProductOfferPage {
           }
         }
 
-        // 4. Check for explicit positive authenticated markers (avatar or username)
-        const authenticatedSelectors = [
-          ...SHOPEE_SELECTORS.session.userAvatar,
-          ...SHOPEE_SELECTORS.session.userName,
-        ];
-
-        for (const selector of authenticatedSelectors) {
+        // 5. Check for explicit positive authenticated markers
+        // Opening a generic Shopee page without user avatar / username is NOT sufficient for READY.
+        // READY strictly requires authenticated dashboard/catalog markers.
+        for (const selector of SHOPEE_SELECTORS.session.authenticatedMarkers) {
           const el = await this.page.$(selector).catch(() => null);
           if (el && (await el.isVisible().catch(() => false))) {
             return "READY";
           }
+        }
+
+        if (!currentUrl || currentUrl === "about:blank") {
+          return "NOT_INITIALIZED";
         }
 
         return "LOGIN_REQUIRED";

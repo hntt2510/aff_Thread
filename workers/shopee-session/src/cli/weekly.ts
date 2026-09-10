@@ -27,14 +27,16 @@ async function main() {
 
   console.log("==================================================");
   console.log("SHOPEE AFFILIATE WEEKLY CATALOG ACQUISITION");
-  console.log("==================================================");
+  console.log("Dedicated Profile: " + sessionBrowserManager.getProfileDir());
   if (isDryRun) {
-    console.log("[MODE: DRY RUN — No data will be sent to Main App]\n");
+    console.log("[MODE: DRY RUN — No data will be sent to Main App; targeting 3-5 candidate products]\n");
   }
 
   try {
     const result = await weeklyAcquisitionRunner.run({
       dryRun: isDryRun,
+      targetCount: isDryRun ? 5 : undefined,
+      maxCount: isDryRun ? 5 : undefined,
       skipLinkResolution: skipLinkArg,
       autoSubmit: false,
     });

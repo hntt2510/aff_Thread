@@ -52,11 +52,11 @@ describe("Worker Session State Machine", () => {
 
   it("formats health summary without sensitive leakage", () => {
     const sm = new SessionStateMachine("READY");
-    const summary = sm.getHealthSummary(".local/shopee-session/profile", true);
+    const summary = sm.getHealthSummary(".local/shopee-chrome-profile", true);
 
     expect(summary.status).toBe("READY");
     expect(summary.dashboardReachable).toBe(true);
-    expect(summary.profilePath).toBe(".local/shopee-session/profile");
+    expect(summary.profilePath).toBe(".local/shopee-chrome-profile");
 
     const json = JSON.stringify(summary);
     expect(json).not.toContain("cookie");

@@ -30,7 +30,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
     runner = new LoginLifecycleRunner({
       detector,
       browserCloser,
-      profileDir: ".local/shopee-session/profile",
+      profileDir: ".local/shopee-chrome-profile",
       pollIntervalMs: 10,
       heartbeatIntervalMs: 1000,
       logger,
@@ -74,7 +74,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
     runner = new LoginLifecycleRunner({
       detector,
       browserCloser,
-      profileDir: ".local/shopee-session/profile",
+      profileDir: ".local/shopee-chrome-profile",
       pollIntervalMs: 10,
       heartbeatIntervalMs: 1000,
       logger,
@@ -88,7 +88,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
     expect(runner.getStateMachine().isReady()).toBe(true);
     // Success banner must have been logged
     expect(loggedMessages.some((m) => m.includes("AUTHENTICATION SUCCESSFUL!"))).toBe(true);
-    expect(loggedMessages.some((m) => m.includes("Session Status: READY"))).toBe(true);
+    expect(loggedMessages.some((m) => m.includes("Session Status:") && m.includes("READY"))).toBe(true);
     // Even after reaching READY, browser was NOT immediately closed
     expect(browserCloser).not.toHaveBeenCalled();
   });
@@ -120,7 +120,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
     runner = new LoginLifecycleRunner({
       detector,
       browserCloser,
-      profileDir: ".local/shopee-session/profile",
+      profileDir: ".local/shopee-chrome-profile",
       pollIntervalMs: 10,
       heartbeatIntervalMs: 1000,
       logger,
@@ -157,7 +157,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
     const runner = new LoginLifecycleRunner({
       detector,
       browserCloser,
-      profileDir: ".local/shopee-session/profile",
+      profileDir: ".local/shopee-chrome-profile",
       pollIntervalMs: 10,
       heartbeatIntervalMs: 1000,
       logger,
@@ -179,7 +179,7 @@ describe("Login Lifecycle Runner Abstraction", () => {
   it("preserves persistent profile path configuration", () => {
     const defaultProfile = sessionBrowserManager.getProfileDir();
     const normalized = defaultProfile.replace(/\\/g, "/");
-    expect(normalized).toContain(".local/shopee-session/profile");
-    expect(normalized).toMatch(/\.local\/shopee-session\/profile$/);
+    expect(normalized).toContain(".local/shopee-chrome-profile");
+    expect(normalized).toMatch(/\.local\/shopee-chrome-profile$/);
   });
 });

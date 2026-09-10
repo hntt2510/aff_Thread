@@ -1,12 +1,13 @@
 import { SessionStateMachine } from "./state-machine.js";
 import { SessionState } from "../types.js";
 
-export type SessionDetectionResult = "READY" | "LOGIN_REQUIRED" | "CHALLENGE_REQUIRED";
+export type SessionDetectionResult = SessionState;
 
 export interface LoginLifecycleOptions {
   detector: () => Promise<SessionDetectionResult>;
   browserCloser: () => Promise<void>;
   profileDir: string;
+  executablePath?: string | null;
   pollIntervalMs?: number;
   heartbeatIntervalMs?: number;
   logger?: {
@@ -23,16 +24,17 @@ export interface LoginLifecycleOptions {
 }
 
 /**
- * Coordinates the interactive login lifecycle:
- * - Keeps headed Chromium open while operator authenticates.
- * - Handles CAPTCHA/OTP challenges gracefully without terminating.
+ * Coordinates the interactive login lifecycle for real Google Chrome:
+ * - Keeps headed Google Chrome open while operator authenticates.
+ * - Handles CAPTCHA/OTP challenges gracefully without terminating or automated bypass.
  * - Confirms READY state once authenticated, keeping the browser open.
- * - Handles SIGINT (Ctrl+C) and SIGTERM gracefully, closing browser and preserving profile.
+ * - Handles SIGINT (Ctrl+C) and SIGTERM gracefully, closing browser connection and preserving profile.
  */
 export class LoginLifecycleRunner {
   private detector: () => Promise<SessionDetectionResult>;
   private browserCloser: () => Promise<void>;
   private profileDir: string;
+  private executablePath: string | null;
   private pollIntervalMs: number;
   private heartbeatIntervalMs: number;
   private logger: {
@@ -57,6 +59,7 @@ export class LoginLifecycleRunner {
     this.detector = options.detector;
     this.browserCloser = options.browserCloser;
     this.profileDir = options.profileDir;
+    this.executablePath = options.executablePath || null;
     this.pollIntervalMs = options.pollIntervalMs ?? 5000;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30000;
     this.logger = options.logger ?? console;
@@ -107,7 +110,7 @@ export class LoginLifecycleRunner {
   /**
    * Graceful signal handler:
    * 1. Stops polling
-   * 2. Closes browser context cleanly
+   * 2. Closes browser context/CDP cleanly
    * 3. Preserves profile directory
    * 4. Logs exit confirmation
    * 5. Exits 0
@@ -160,7 +163,7 @@ export class LoginLifecycleRunner {
           detectedState = await this.detector();
         } catch (err: unknown) {
           if (this.isBrowserClosedError(err)) {
-            this.logger.log("\n[i] Browser window was closed by the operator.");
+            this.logger.log("\n[i] Google Chrome window was closed by the operator.");
             await this.handleShutdownSignal("BROWSER_CLOSED");
             return;
           }
@@ -181,15 +184,18 @@ export class LoginLifecycleRunner {
                 this.logger.log("\n==================================================");
                 this.logger.log("[✓] AUTHENTICATION SUCCESSFUL!");
                 this.logger.log("==================================================");
-                this.logger.log("Session Status: READY");
-                this.logger.log(`Verified At:    ${new Date().toISOString()}`);
-                this.logger.log(`Profile:        ${this.profileDir}`);
+                this.logger.log("Session Status:    READY");
+                this.logger.log(`Verified At:       ${new Date().toISOString()}`);
+                if (this.executablePath) {
+                  this.logger.log(`Chrome Executable: ${this.executablePath}`);
+                }
+                this.logger.log(`Dedicated Profile: ${this.profileDir}`);
                 this.logger.log("\nSession profile saved and ready for use.");
-                this.logger.log("Chromium browser will remain open for your inspection.");
+                this.logger.log("Google Chrome will remain open for your inspection.");
                 this.logger.log("Press Ctrl+C at any time to close session and return to shell.");
                 this.logger.log("\nYou can now execute in another terminal:");
                 this.logger.log("  npm run shopee:status");
-                this.logger.log("  npm run shopee:weekly\n");
+                this.logger.log("  npm run shopee:weekly -- --dry-run\n");
               }
             } else if (detectedState === "CHALLENGE_REQUIRED") {
               this.logger.log("\n==================================================");
@@ -197,10 +203,13 @@ export class LoginLifecycleRunner {
               this.logger.log("==================================================");
               this.logger.log("Manual verification required in the browser.");
               this.logger.log("Shopee has presented a security challenge / CAPTCHA puzzle / OTP.");
-              this.logger.log("Please complete verification directly in the browser window.\n");
+              this.logger.log("Please complete verification directly in the Google Chrome window.\n");
             } else if (detectedState === "LOGIN_REQUIRED") {
               this.logger.log("[...] Session status: LOGIN_REQUIRED");
-              this.logger.log("Waiting for operator to log in via browser window...");
+              this.logger.log("Waiting for operator to log in via Google Chrome window...");
+            } else if (detectedState === "EXPIRED") {
+              this.logger.log("[...] Session status: EXPIRED");
+              this.logger.log("Shopee Affiliate session has expired. Please log in again in Chrome window...");
             }
           } else {
             // Unchanged state: check heartbeat to avoid terminal silence without spamming
@@ -210,9 +219,11 @@ export class LoginLifecycleRunner {
               if (detectedState === "READY") {
                 this.logger.log("[heartbeat] Session active: READY. (Press Ctrl+C to close)");
               } else if (detectedState === "CHALLENGE_REQUIRED") {
-                this.logger.log("[heartbeat] Waiting for manual verification in browser...");
+                this.logger.log("[heartbeat] Waiting for manual verification in Google Chrome...");
               } else if (detectedState === "LOGIN_REQUIRED") {
-                this.logger.log("[heartbeat] Waiting for operator login in browser window...");
+                this.logger.log("[heartbeat] Waiting for operator login in Google Chrome window...");
+              } else if (detectedState === "EXPIRED") {
+                this.logger.log("[heartbeat] Session expired. Waiting for operator re-login...");
               }
             }
           }
