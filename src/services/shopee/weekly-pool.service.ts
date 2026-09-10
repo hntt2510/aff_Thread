@@ -259,22 +259,48 @@ export class WeeklyPoolService {
           }
         }
 
-        let dealCalculation = meta.calculation;
-        let estimatedFinalPrice = meta.estimatedFinalPrice;
-        let dealOpportunity = meta.dealOpportunity || { score: meta.dealOpportunityScore ?? 50 };
+        const rawVoucher =
+          meta.voucherInfo ||
+          meta.voucher_info ||
+          meta.batch_item_for_item_card_full?.voucher_info ||
+          meta.batch_item_for_item_card_full?.voucherInfo;
+        const voucherCode =
+          meta.voucherCode ||
+          meta.voucher_code ||
+          rawVoucher?.voucher_code ||
+          rawVoucher?.code ||
+          null;
 
-        if (!dealCalculation) {
-          const dealFacts = extractAndCalculateShopeeDeal({
-            price: meta.price ?? meta.observedPrice,
-            priceBeforeDiscount: meta.originalPrice,
-            voucherInfo: meta.voucherInfo,
-            voucherCode: meta.voucherCode,
-            commissionRate: item.offer?.commissionRate,
-          });
-          dealCalculation = dealFacts.calculation;
-          estimatedFinalPrice = dealFacts.estimatedFinalPrice;
-          dealOpportunity = dealFacts.dealOpportunity;
-        }
+        const rawPrice =
+          meta.price ??
+          meta.batch_item_for_item_card_full?.price ??
+          meta.observedPrice;
+        const rawOrig =
+          meta.originalPrice ??
+          meta.batch_item_for_item_card_full?.price_before_discount ??
+          meta.priceBeforeDiscount ??
+          rawPrice;
+
+        const dealFacts = extractAndCalculateShopeeDeal({
+          price: rawPrice,
+          priceBeforeDiscount: rawOrig,
+          voucherInfo: rawVoucher,
+          voucherCode,
+          commissionRate: item.offer?.commissionRate,
+        });
+
+        const dealCalculation = dealFacts.calculation;
+        const dealOpportunity = dealFacts.dealOpportunity;
+        // Priority for estimatedFinalPrice:
+        // 1. If shop voucher gives discount: dealFacts.estimatedFinalPrice (e.g. 353.800đ -> 283.000đ)
+        // 2. If platform voucher gives discount: dealFacts.stackedPricing.finalPrice
+        // 3. Fallback: dealFacts.basePrice. It will NEVER be null, undefined, or 0.
+        const estimatedFinalPrice =
+          dealFacts.estimatedFinalPrice > 0 && dealFacts.estimatedFinalPrice < dealFacts.basePrice
+            ? dealFacts.estimatedFinalPrice
+            : dealFacts.stackedPricing?.finalPrice && dealFacts.stackedPricing.finalPrice < dealFacts.basePrice
+            ? dealFacts.stackedPricing.finalPrice
+            : dealFacts.basePrice;
 
         // Ensure product_deal_observations has observation for each pool item
         const [existingObs] = await db
@@ -305,6 +331,7 @@ export class WeeklyPoolService {
               calculation: dealCalculation,
               dealOpportunity,
               estimatedFinalPrice,
+              stackedPricing: dealFacts.stackedPricing,
             }),
           });
         }
@@ -322,6 +349,7 @@ export class WeeklyPoolService {
             calculation: dealCalculation,
             dealOpportunity,
             estimatedFinalPrice,
+            stackedPricing: dealFacts.stackedPricing,
           }),
           selectedAt: new Date(),
         };
@@ -377,6 +405,57 @@ export class WeeklyPoolService {
         } catch {
           // ignore
         }
+      }
+
+      // Dynamic fallback calculation: guarantee that every item has a computed price and never shows "—"
+      if (!estimatedFinalPrice || !dealCalculation) {
+        let meta: any = {};
+        if (row.offer?.sourceMetadataJson) {
+          try {
+            meta = JSON.parse(row.offer.sourceMetadataJson);
+          } catch {
+            // ignore
+          }
+        }
+
+        const rawVoucher =
+          meta.voucherInfo ||
+          meta.voucher_info ||
+          meta.batch_item_for_item_card_full?.voucher_info ||
+          meta.batch_item_for_item_card_full?.voucherInfo;
+        const voucherCode =
+          meta.voucherCode ||
+          meta.voucher_code ||
+          rawVoucher?.voucher_code ||
+          rawVoucher?.code ||
+          null;
+
+        const rawPrice =
+          meta.price ??
+          meta.batch_item_for_item_card_full?.price ??
+          meta.observedPrice;
+        const rawOrig =
+          meta.originalPrice ??
+          meta.batch_item_for_item_card_full?.price_before_discount ??
+          meta.priceBeforeDiscount ??
+          rawPrice;
+
+        const dealFacts = extractAndCalculateShopeeDeal({
+          price: rawPrice,
+          priceBeforeDiscount: rawOrig,
+          voucherInfo: rawVoucher,
+          voucherCode,
+          commissionRate: row.offer?.commissionRate,
+        });
+
+        dealCalculation = dealCalculation || dealFacts.calculation;
+        dealOpportunityScore = dealOpportunityScore || dealFacts.dealOpportunityScore;
+        estimatedFinalPrice =
+          dealFacts.estimatedFinalPrice > 0 && dealFacts.estimatedFinalPrice < dealFacts.basePrice
+            ? dealFacts.estimatedFinalPrice
+            : dealFacts.stackedPricing?.finalPrice && dealFacts.stackedPricing.finalPrice < dealFacts.basePrice
+            ? dealFacts.stackedPricing.finalPrice
+            : dealFacts.basePrice;
       }
 
       return {

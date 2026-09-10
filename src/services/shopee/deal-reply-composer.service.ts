@@ -6,6 +6,7 @@
  */
 
 import { FinalPriceCalculationResult } from "./final-price-calculator";
+import { shopeeVoucherStackerService } from "./shopee-voucher-stacker.service";
 
 export interface DealReplyProductItem {
   title: string;
@@ -15,6 +16,7 @@ export interface DealReplyProductItem {
   voucherDiscountPercent?: number | null;
   voucherDiscountAmount?: number | null;
   discountRate?: number | null;
+  platformDiscountPercent?: number | null;
 }
 
 export interface DealReplyComposerOptions {
@@ -127,6 +129,31 @@ export class DealReplyComposerService {
         voucherDesc = "voucher";
       }
 
+      // Multi-tier stacked voucher calculation (Shop Voucher + Platform Voucher baseline)
+      const stacked = shopeeVoucherStackerService.stackVouchers({
+        basePrice: calculation.basePrice,
+        originalPrice: calculation.evidence?.originalPrice,
+        shopVoucher: {
+          code,
+          discountPercent: pct,
+          discountAmount: amt,
+          maxDiscount: calculation.evidence?.voucherMaxDiscount,
+          minSpend: calculation.evidence?.voucherMinSpend,
+          validFrom: calculation.evidence?.voucherValidFrom,
+          validUntil: calculation.evidence?.voucherValidUntil,
+        },
+        platformVoucherConfig:
+          item.platformDiscountPercent !== undefined && item.platformDiscountPercent !== null
+            ? { discountPercent: item.platformDiscountPercent }
+            : undefined,
+      });
+
+      const originalPriceVal =
+        calculation.evidence?.originalPrice && calculation.evidence.originalPrice > calculation.basePrice
+          ? calculation.evidence.originalPrice
+          : calculation.basePrice;
+      const originalFormattedVal = formatVnd(originalPriceVal);
+
       // Title line
       lines.push(`\n📌 ${title}`);
 
@@ -139,9 +166,16 @@ export class DealReplyComposerService {
           `• Giá hiện tại: ${basePriceFormatted}\n• Từ ${startTime}, áp ${voucherDesc} dự kiến còn ~${finalPriceFormatted} nếu đủ điều kiện.`
         );
       } else if (calculation.applicable === "YES" && calculation.discountAmount > 0) {
-        lines.push(
-          `• Giá: ${basePriceFormatted} → áp ${voucherDesc} ước tính còn ~${finalPriceFormatted} (tiết kiệm ${formatVnd(calculation.discountAmount)}).`
-        );
+        const finalStackedFormatted = formatVnd(stacked.finalPrice);
+        if (stacked.platformDiscountAmount > 0) {
+          lines.push(
+            `• Giá gốc: ${originalFormattedVal} (giá bán ${basePriceFormatted}, áp ${voucherDesc} còn ${finalPriceFormatted}, tiết kiệm ${formatVnd(calculation.discountAmount)}) → Sau voucher Shop & sàn chỉ còn ~${finalStackedFormatted}.`
+          );
+        } else {
+          lines.push(
+            `• Giá gốc: ${originalFormattedVal} (giá bán ${basePriceFormatted}) → Sau voucher Shop & sàn chỉ còn ~${finalPriceFormatted} (tiết kiệm ${formatVnd(calculation.discountAmount)}).`
+          );
+        }
       } else {
         // Direct discount when no voucher is active/applicable
         const directDiscountPct =
@@ -154,12 +188,21 @@ export class DealReplyComposerService {
               )
             : null);
 
+        const platformSavingsFormatted =
+          stacked.platformDiscountAmount > 0
+            ? ` → Áp thêm voucher sàn chỉ còn ~${formatVnd(stacked.finalPrice)}.`
+            : "";
+
         if (directDiscountPct && directDiscountPct > 0) {
           const originalFormatted = calculation.evidence?.originalPrice
             ? ` (gốc ${formatVnd(calculation.evidence.originalPrice)})`
             : "";
           lines.push(
-            `• Giảm trực tiếp ${directDiscountPct}%: chỉ còn ${basePriceFormatted}${originalFormatted}`
+            `• Giảm trực tiếp ${directDiscountPct}%: chỉ còn ${basePriceFormatted}${originalFormatted}${platformSavingsFormatted}`
+          );
+        } else if (stacked.platformDiscountAmount > 0) {
+          lines.push(
+            `• Giá tham khảo: ${basePriceFormatted} → Áp thêm voucher sàn ước tính chỉ còn ~${formatVnd(stacked.finalPrice)}.`
           );
         } else {
           lines.push(`• Giá tham khảo: ${basePriceFormatted}`);

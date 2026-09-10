@@ -183,6 +183,7 @@ function ShopeeDealsContent() {
   const [matcherMode, setMatcherMode] = useState<"SELECT" | "CUSTOM">("CUSTOM");
   const [customMatcherText, setCustomMatcherText] = useState("");
   const [matcherResults, setMatcherResults] = useState<any>(null);
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number>(0);
   const [runningMatcher, setRunningMatcher] = useState(false);
   const [creatingDraftPlan, setCreatingDraftPlan] = useState(false);
 
@@ -862,6 +863,7 @@ function ShopeeDealsContent() {
       const data = await res.json();
       if (res.ok && data.success) {
         setMatcherResults(data);
+        setSelectedCandidateIndex(0);
       } else {
         setError(data.error || "Matcher failed");
       }
@@ -873,7 +875,15 @@ function ShopeeDealsContent() {
   };
 
   const handleCreateDraftPlan = async (matchItem: any) => {
-    if (!matcherResults?.replyPreview?.text) return;
+    const candidate =
+      matchItem ||
+      matcherResults?.rankedMatches?.[selectedCandidateIndex] ||
+      matcherResults?.rankedMatches?.[0];
+    const replyText =
+      candidate?.replyPreview?.text ||
+      matcherResults?.replyPreview?.text;
+
+    if (!replyText || !candidate) return;
     const targetPostId = selectedPostId || matcherResults.post?.id || "custom";
     if (targetPostId === "custom") {
       alert("Draft plan can only be associated with a live Threads post. Please select a published post from the dropdown or publish this draft first.");
@@ -886,13 +896,13 @@ function ShopeeDealsContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           postId: targetPostId,
-          replyText: matcherResults.replyPreview.text,
-          directAffiliateUrl: matchItem.product.affiliateUrl,
+          replyText,
+          directAffiliateUrl: candidate.product.affiliateUrl,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setActionSuccess("Draft monetization plan created successfully! Inspect under /monetization.");
+        setActionSuccess(`Draft monetization plan created for Candidate #${candidate.rank || selectedCandidateIndex + 1}! Inspect under /monetization.`);
       } else {
         alert(data.error || "Failed to create draft plan");
       }
@@ -1520,6 +1530,18 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                           ? formatVnd(item.estimatedFinalPrice)
                           : item.dealCalculation?.estimatedFinalPrice
                           ? formatVnd(item.dealCalculation.estimatedFinalPrice)
+                          : item.dealCalculation?.basePrice
+                          ? formatVnd(item.dealCalculation.basePrice)
+                          : item.offer?.sourceMetadataJson
+                          ? (() => {
+                              try {
+                                const m = JSON.parse(item.offer!.sourceMetadataJson!);
+                                const p = m.price ?? m.observedPrice;
+                                return p ? formatVnd(p) : "—";
+                              } catch {
+                                return "—";
+                              }
+                            })()
                           : "—"}
                       </div>
                     </div>
@@ -2003,88 +2025,125 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                   Top Ranked Candidates ({matcherResults.rankedMatches?.length || 0})
                 </h4>
 
-                {matcherResults.rankedMatches?.map((match: any) => (
-                  <div
-                    key={match.product.id}
-                    className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
-                          #{match.rank}
+                {matcherResults.rankedMatches?.map((match: any, idx: number) => {
+                  const isSelected = idx === selectedCandidateIndex;
+                  return (
+                    <div
+                      key={match.product.id}
+                      onClick={() => setSelectedCandidateIndex(idx)}
+                      className={`cursor-pointer transition-all rounded-xl p-4 shadow-xs space-y-3 border ${
+                        isSelected
+                          ? "bg-orange-50/50 border-orange-500 ring-2 ring-orange-500/20 shadow-sm"
+                          : "bg-white border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                              isSelected
+                                ? "bg-orange-600 text-white"
+                                : "bg-slate-900 text-white"
+                            }`}
+                          >
+                            #{match.rank || idx + 1}
+                          </span>
+                          <h5 className="font-bold text-slate-900 text-sm truncate max-w-sm">
+                            {match.product.title}
+                          </h5>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {isSelected && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white shadow-2xs">
+                              Selected
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Match: {match.totalMatchScore}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Breakdown */}
+                      <div className="grid grid-cols-4 gap-2 text-center text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <div>
+                          <span className="text-[10px] text-slate-400">Relevance</span>
+                          <div className="font-bold text-slate-800">{match.components.relevance}</div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400">Catalog</span>
+                          <div className="font-bold text-slate-800">{match.components.catalog}</div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400">Deal Opp</span>
+                          <div className="font-bold text-slate-800">{match.components.deal}</div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400">Perf</span>
+                          <div className="font-bold text-slate-800">{match.components.performance}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <span className="text-[11px] text-slate-500 truncate max-w-[240px]">
+                          Keywords: [{match.matchedKeywords?.join(", ") || "none"}]
                         </span>
-                        <h5 className="font-bold text-slate-900 text-sm truncate max-w-sm">
-                          {match.product.title}
-                        </h5>
-                      </div>
-                      <span className="px-2 py-0.5 rounded text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        Match: {match.totalMatchScore}
-                      </span>
-                    </div>
-
-                    {/* Breakdown */}
-                    <div className="grid grid-cols-4 gap-2 text-center text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
-                      <div>
-                        <span className="text-[10px] text-slate-400">Relevance</span>
-                        <div className="font-bold text-slate-800">{match.components.relevance}</div>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400">Catalog</span>
-                        <div className="font-bold text-slate-800">{match.components.catalog}</div>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400">Deal Opp</span>
-                        <div className="font-bold text-slate-800">{match.components.deal}</div>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400">Perf</span>
-                        <div className="font-bold text-slate-800">{match.components.performance}</div>
+                        <span className="font-mono text-[10px] text-orange-600 truncate max-w-[150px]">
+                          {match.product.affiliateUrl}
+                        </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <span className="text-[11px] text-slate-500 truncate max-w-[240px]">
-                        Keywords: [{match.matchedKeywords?.join(", ") || "none"}]
-                      </span>
-                      <span className="font-mono text-[10px] text-orange-600 truncate max-w-[150px]">
-                        {match.product.affiliateUrl}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Right: Reply Preview & Draft Plan Creator */}
               <div className="lg:col-span-5 space-y-4">
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                      <Flame className="w-4 h-4 text-orange-600" />
-                      Generated Reply Preview
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-800 font-bold rounded">
-                      Direct Shopee Link
-                    </span>
-                  </div>
+                {(() => {
+                  const currentCandidate =
+                    matcherResults.rankedMatches?.[selectedCandidateIndex] ||
+                    matcherResults.rankedMatches?.[0];
+                  const currentReplyText =
+                    currentCandidate?.replyPreview?.text ||
+                    matcherResults.replyPreview?.text ||
+                    "No preview text available";
 
-                  <p className="text-xs text-slate-800 whitespace-pre-wrap bg-slate-50 p-3.5 rounded-lg border border-slate-200 font-mono">
-                    {matcherResults.replyPreview?.text}
-                  </p>
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Flame className="w-4 h-4 text-orange-600" />
+                          <span className="font-bold text-xs uppercase tracking-wider text-slate-700">
+                            Generated Reply (Candidate #{currentCandidate?.rank || selectedCandidateIndex + 1})
+                          </span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-800 font-bold rounded">
+                          Direct Shopee Link
+                        </span>
+                      </div>
 
-                  <div className="pt-1">
-                    <button
-                      onClick={() => handleCreateDraftPlan(matcherResults.rankedMatches[0])}
-                      disabled={creatingDraftPlan}
-                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-xs transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {creatingDraftPlan ? "Creating Plan..." : "Create Draft Monetization Plan"}
-                    </button>
-                    <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                      ℹ️ Creates a DRAFT plan in the monetization queue. Never publishes automatically without operator review.
-                    </p>
-                  </div>
-                </div>
+                      <p className="text-xs text-slate-800 whitespace-pre-wrap bg-slate-50 p-3.5 rounded-lg border border-slate-200 font-mono">
+                        {currentReplyText}
+                      </p>
+
+                      <div className="pt-1">
+                        <button
+                          onClick={() => handleCreateDraftPlan(currentCandidate)}
+                          disabled={creatingDraftPlan || !currentCandidate}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-xs transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          <Plus className="w-4 h-4" />
+                          {creatingDraftPlan
+                            ? "Creating Plan..."
+                            : `Create Draft Monetization Plan (Candidate #${currentCandidate?.rank || selectedCandidateIndex + 1})`}
+                        </button>
+                        <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                          ℹ️ Creates a DRAFT plan in the monetization queue for Candidate #{currentCandidate?.rank || selectedCandidateIndex + 1}. Never publishes automatically without operator review.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

@@ -7,6 +7,11 @@
 import { finalPriceCalculator, FinalPriceCalculationResult } from "./final-price-calculator";
 import { dealOpportunityScoringService, DealOpportunityBreakdown } from "./deal-opportunity-scoring.service";
 import { parseShopeePrice } from "./shopee-top-offers.service";
+import {
+  shopeeVoucherStackerService,
+  PlatformVoucherConfig,
+  VoucherStackerResult,
+} from "./shopee-voucher-stacker.service";
 
 export interface AutomatedDealInput {
   price?: string | number | null;
@@ -16,6 +21,7 @@ export interface AutomatedDealInput {
   voucherInfo?: any;
   voucherCode?: string | null;
   commissionRate?: number | string | null;
+  platformVoucherConfig?: PlatformVoucherConfig | null;
   evaluationTime?: Date | string | null;
 }
 
@@ -37,6 +43,7 @@ export interface AutomatedDealResult {
   dealOpportunityScore: number;
   calculation: FinalPriceCalculationResult;
   dealOpportunity: DealOpportunityBreakdown;
+  stackedPricing?: VoucherStackerResult;
 }
 
 /**
@@ -67,7 +74,13 @@ export function extractVoucherFacts(rawVoucher: any): {
   voucherValidFrom: Date | null;
   voucherValidUntil: Date | null;
 } {
-  if (!rawVoucher || typeof rawVoucher !== "object") {
+  const v =
+    rawVoucher?.batch_item_for_item_card_full?.voucher_info ||
+    rawVoucher?.voucher_info ||
+    rawVoucher?.voucherInfo ||
+    rawVoucher;
+
+  if (!v || typeof v !== "object") {
     return {
       voucherCode: null,
       voucherDiscountType: null,
@@ -82,26 +95,26 @@ export function extractVoucherFacts(rawVoucher: any): {
 
   // 1. Voucher Code
   const rawCode =
-    rawVoucher.voucher_code ??
-    rawVoucher.code ??
-    rawVoucher.voucherCode ??
-    rawVoucher.promotion_id ??
+    v.voucher_code ??
+    v.code ??
+    v.voucherCode ??
+    v.promotion_id ??
     null;
   const voucherCode = typeof rawCode === "string" && rawCode.trim() ? rawCode.trim() : null;
 
   // 2. Discount Percent
   let voucherDiscountPercent: number | null = null;
-  if (rawVoucher.discount_percentage !== undefined && rawVoucher.discount_percentage !== null) {
-    const p = Number(rawVoucher.discount_percentage);
+  if (v.discount_percentage !== undefined && v.discount_percentage !== null) {
+    const p = Number(v.discount_percentage);
     if (!isNaN(p) && p > 0) voucherDiscountPercent = p;
-  } else if (rawVoucher.discount_rate !== undefined && rawVoucher.discount_rate !== null) {
-    const p = Number(rawVoucher.discount_rate);
+  } else if (v.discount_rate !== undefined && v.discount_rate !== null) {
+    const p = Number(v.discount_rate);
     if (!isNaN(p) && p > 0) voucherDiscountPercent = p > 1.0 ? p : p * 100;
-  } else if (rawVoucher.discount && typeof rawVoucher.discount === "string" && rawVoucher.discount.includes("%")) {
-    const p = parseFloat(rawVoucher.discount.replace("%", "").replace(",", "."));
+  } else if (v.discount && typeof v.discount === "string" && v.discount.includes("%")) {
+    const p = parseFloat(v.discount.replace("%", "").replace(",", "."));
     if (!isNaN(p) && p > 0) voucherDiscountPercent = p;
-  } else if (rawVoucher.label && typeof rawVoucher.label === "string") {
-    const match = rawVoucher.label.match(/(\d+(?:[.,]\d+)?)\s*%/);
+  } else if (v.label && typeof v.label === "string") {
+    const match = v.label.match(/(\d+(?:[.,]\d+)?)\s*%/);
     if (match) {
       const p = parseFloat(match[1].replace(",", "."));
       if (!isNaN(p) && p > 0) voucherDiscountPercent = p;
@@ -110,17 +123,17 @@ export function extractVoucherFacts(rawVoucher: any): {
 
   // 3. Discount Amount (Fixed VND)
   let voucherDiscountAmount: number | null = null;
-  if (rawVoucher.discount_value !== undefined && rawVoucher.discount_value !== null) {
-    const amt = parseShopeePrice(rawVoucher.discount_value);
+  if (v.discount_value !== undefined && v.discount_value !== null) {
+    const amt = parseShopeePrice(v.discount_value);
     if (amt > 0) voucherDiscountAmount = amt;
-  } else if (rawVoucher.discount_amount !== undefined && rawVoucher.discount_amount !== null) {
-    const amt = parseShopeePrice(rawVoucher.discount_amount);
+  } else if (v.discount_amount !== undefined && v.discount_amount !== null) {
+    const amt = parseShopeePrice(v.discount_amount);
     if (amt > 0) voucherDiscountAmount = amt;
-  } else if (rawVoucher.discountAmount !== undefined && rawVoucher.discountAmount !== null) {
-    const amt = parseShopeePrice(rawVoucher.discountAmount);
+  } else if (v.discountAmount !== undefined && v.discountAmount !== null) {
+    const amt = parseShopeePrice(v.discountAmount);
     if (amt > 0) voucherDiscountAmount = amt;
-  } else if (rawVoucher.label && typeof rawVoucher.label === "string" && !voucherDiscountPercent) {
-    const match = rawVoucher.label.match(/giảm\s*(\d+(?:[.,]\d+)?)\s*([kKtrTRmđ₫vndVND]*)/i);
+  } else if (v.label && typeof v.label === "string" && !voucherDiscountPercent) {
+    const match = v.label.match(/giảm\s*(\d+(?:[.,]\d+)?)\s*([kKtrTRmđ₫vndVND]*)/i);
     if (match) {
       const amt = parseShopeePrice(`${match[1]}${match[2]}`);
       if (amt > 0) voucherDiscountAmount = amt;
@@ -137,33 +150,33 @@ export function extractVoucherFacts(rawVoucher: any): {
 
   // 5. Min Spend & Max Discount
   let voucherMinSpend: number | null = null;
-  if (rawVoucher.min_spend !== undefined && rawVoucher.min_spend !== null) {
-    const ms = parseShopeePrice(rawVoucher.min_spend);
+  if (v.min_spend !== undefined && v.min_spend !== null) {
+    const ms = parseShopeePrice(v.min_spend);
     if (ms > 0) voucherMinSpend = ms;
-  } else if (rawVoucher.minSpend !== undefined && rawVoucher.minSpend !== null) {
-    const ms = parseShopeePrice(rawVoucher.minSpend);
+  } else if (v.minSpend !== undefined && v.minSpend !== null) {
+    const ms = parseShopeePrice(v.minSpend);
     if (ms > 0) voucherMinSpend = ms;
   }
 
   let voucherMaxDiscount: number | null = null;
-  if (rawVoucher.max_discount !== undefined && rawVoucher.max_discount !== null) {
-    const md = parseShopeePrice(rawVoucher.max_discount);
+  if (v.max_discount !== undefined && v.max_discount !== null) {
+    const md = parseShopeePrice(v.max_discount);
     if (md > 0) voucherMaxDiscount = md;
-  } else if (rawVoucher.maxDiscount !== undefined && rawVoucher.maxDiscount !== null) {
-    const md = parseShopeePrice(rawVoucher.maxDiscount);
+  } else if (v.maxDiscount !== undefined && v.maxDiscount !== null) {
+    const md = parseShopeePrice(v.maxDiscount);
     if (md > 0) voucherMaxDiscount = md;
   }
 
   // 6. Valid From / Until Dates
   let voucherValidFrom: Date | null = null;
-  const rawStart = rawVoucher.start_time ?? rawVoucher.startTime ?? rawVoucher.valid_from ?? rawVoucher.validFrom;
+  const rawStart = v.start_time ?? v.startTime ?? v.valid_from ?? v.validFrom;
   if (rawStart) {
     const d = typeof rawStart === "number" && rawStart < 10000000000 ? new Date(rawStart * 1000) : new Date(rawStart);
     if (!isNaN(d.getTime())) voucherValidFrom = d;
   }
 
   let voucherValidUntil: Date | null = null;
-  const rawEnd = rawVoucher.end_time ?? rawVoucher.endTime ?? rawVoucher.valid_until ?? rawVoucher.validUntil;
+  const rawEnd = v.end_time ?? v.endTime ?? v.valid_until ?? v.validUntil;
   if (rawEnd) {
     const d = typeof rawEnd === "number" && rawEnd < 10000000000 ? new Date(rawEnd * 1000) : new Date(rawEnd);
     if (!isNaN(d.getTime())) voucherValidUntil = d;
@@ -235,6 +248,29 @@ export function extractAndCalculateShopeeDeal(input: AutomatedDealInput): Automa
     commissionRate: commissionRateNum,
   });
 
+  // 6. Multi-tier Stacking (Shop Voucher + Platform Voucher)
+  const stackedPricing = shopeeVoucherStackerService.stackVouchers({
+    basePrice,
+    originalPrice,
+    shopVoucher: {
+      code: voucherCode,
+      discountType: voucherFacts.voucherDiscountType,
+      discountPercent: voucherFacts.voucherDiscountPercent,
+      discountAmount: voucherFacts.voucherDiscountAmount,
+      maxDiscount: voucherFacts.voucherMaxDiscount,
+      minSpend: voucherFacts.voucherMinSpend,
+      validFrom: voucherFacts.voucherValidFrom,
+      validUntil: voucherFacts.voucherValidUntil,
+    },
+    platformVoucherConfig: input.platformVoucherConfig,
+    evaluationTime: evalTime,
+  });
+
+  const estimatedFinalPrice =
+    calculation.estimatedFinalPrice > 0
+      ? calculation.estimatedFinalPrice
+      : basePrice;
+
   return {
     basePrice,
     originalPrice,
@@ -246,12 +282,13 @@ export function extractAndCalculateShopeeDeal(input: AutomatedDealInput): Automa
     voucherMinSpend: voucherFacts.voucherMinSpend,
     voucherValidFrom: voucherFacts.voucherValidFrom,
     voucherValidUntil: voucherFacts.voucherValidUntil,
-    estimatedFinalPrice: calculation.estimatedFinalPrice,
+    estimatedFinalPrice,
     discountAmount: calculation.discountAmount,
     dealState: calculation.dealState,
     applicable: calculation.applicable,
     dealOpportunityScore: dealOpportunity.score,
     calculation,
     dealOpportunity,
+    stackedPricing,
   };
 }

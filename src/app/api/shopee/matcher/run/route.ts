@@ -143,28 +143,32 @@ export async function POST(req: NextRequest) {
       weights: body.weights,
     });
 
-    // 4. Generate Reply Preview for Top Candidate using Authoritative Calculation
-    let replyPreview: any = null;
-    if (rankedMatches.length > 0) {
-      const topMatch = rankedMatches[0];
+    // 4. Generate Reply Preview for each candidate using Authoritative Calculation & Stacking
+    const rankedMatchesWithPreview = rankedMatches.map((match) => {
       const calculation =
-        topMatch.product.dealCalculation ||
+        match.product.dealCalculation ||
         finalPriceCalculator.calculate({
           observedPrice: 100000,
           userEligibility: "UNKNOWN",
         });
 
-      const composed = dealReplyComposerService.composeReply([
+      const replyPreview = dealReplyComposerService.composeReply([
         {
-          title: topMatch.product.title,
-          directAffiliateUrl: topMatch.product.affiliateUrl,
+          title: match.product.title,
+          directAffiliateUrl: match.product.affiliateUrl,
           calculation,
-          voucherCode: topMatch.product.voucherCode ?? calculation.evidence?.voucherCode,
-          discountRate: topMatch.product.discountRate,
+          voucherCode: match.product.voucherCode ?? calculation.evidence?.voucherCode,
+          discountRate: match.product.discountRate,
         },
       ]);
-      replyPreview = composed;
-    }
+
+      return {
+        ...match,
+        replyPreview,
+      };
+    });
+
+    const replyPreview = rankedMatchesWithPreview[0]?.replyPreview || null;
 
     return NextResponse.json({
       success: true,
@@ -179,7 +183,7 @@ export async function POST(req: NextRequest) {
             text: targetText,
             status: "CUSTOM",
           },
-      rankedMatches,
+      rankedMatches: rankedMatchesWithPreview,
       replyPreview,
     });
   } catch (err: unknown) {
