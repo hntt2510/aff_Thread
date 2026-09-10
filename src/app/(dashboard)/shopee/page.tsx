@@ -117,7 +117,7 @@ interface DealObservationItem {
 
 function ShopeeDealsContent() {
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") || "WEEKLY_POOL";
+  const initialTab = searchParams.get("tab") || "TOP_OFFERS";
 
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [loading, setLoading] = useState(false);
@@ -806,6 +806,15 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           <p className="text-sm text-slate-500 mt-1">
             Weekly product pools, time-sensitive deal observations, deterministic price calculations & product matching
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowJsonModal(true)}
+            className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 shadow-xs"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Nhập JSON Shopee (data.list)</span>
+          </button>
         </div>
       </div>
 
