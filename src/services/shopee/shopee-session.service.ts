@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { shopeeSessions, type ShopeeSessionStatus } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
+import { ensureDatabaseSchema } from "@/db/migrate";
 import { shopeeCookieService } from "./shopee-cookie.service";
 import { shopeeDirectApiClient, type GenerateLinkResult } from "./shopee-direct-api.client";
 
@@ -14,40 +15,67 @@ export interface PublicShopeeSessionStatus {
   lastError: string | null;
 }
 
+let isSchemaEnsured = false;
+
+async function runWithAutoMigration<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (err: unknown) {
+    const errorStr = String(err);
+    if (
+      !isSchemaEnsured &&
+      (errorStr.includes("shopee_sessions") ||
+        errorStr.includes("does not exist") ||
+        errorStr.includes("42P01"))
+    ) {
+      try {
+        await ensureDatabaseSchema();
+        isSchemaEnsured = true;
+        return await action();
+      } catch (migErr) {
+        console.error("Auto-migration execution failed:", migErr);
+      }
+    }
+    throw err;
+  }
+}
+
 export class ShopeeSessionService {
   /**
    * Get sanitized public status for dashboard UI.
    * Never exposes raw cookies or encryption keys.
    */
   async getSessionStatus(): Promise<PublicShopeeSessionStatus> {
-    const records = await db
-      .select()
-      .from(shopeeSessions)
-      .orderBy(desc(shopeeSessions.updatedAt))
-      .limit(1);
+    return runWithAutoMigration(async () => {
+      const records = await db
+        .select()
+        .from(shopeeSessions)
+        .orderBy(desc(shopeeSessions.updatedAt))
+        .limit(1);
 
-    if (records.length === 0) {
+      if (records.length === 0) {
+        return {
+          isConfigured: false,
+          status: "NO_SESSION",
+          username: null,
+          affiliateId: null,
+          lastValidatedAt: null,
+          updatedAt: null,
+          lastError: null,
+        };
+      }
+
+      const session = records[0];
       return {
-        isConfigured: false,
-        status: "NO_SESSION",
-        username: null,
-        affiliateId: null,
-        lastValidatedAt: null,
-        updatedAt: null,
-        lastError: null,
+        isConfigured: true,
+        status: session.status,
+        username: session.username,
+        affiliateId: session.affiliateId,
+        lastValidatedAt: session.lastValidatedAt ? session.lastValidatedAt.toISOString() : null,
+        updatedAt: session.updatedAt ? session.updatedAt.toISOString() : null,
+        lastError: session.lastError,
       };
-    }
-
-    const session = records[0];
-    return {
-      isConfigured: true,
-      status: session.status,
-      username: session.username,
-      affiliateId: session.affiliateId,
-      lastValidatedAt: session.lastValidatedAt ? session.lastValidatedAt.toISOString() : null,
-      updatedAt: session.updatedAt ? session.updatedAt.toISOString() : null,
-      lastError: session.lastError,
-    };
+    });
   }
 
   /**
@@ -89,17 +117,30 @@ export class ShopeeSessionService {
     // Extract username if SPC_U or username is in cookies
     const potentialUsername = parseResult.cookies["SPC_U"] || null;
 
-    // Check if an existing session exists to update, otherwise insert
-    const existing = await db
-      .select({ id: shopeeSessions.id })
-      .from(shopeeSessions)
-      .orderBy(desc(shopeeSessions.updatedAt))
-      .limit(1);
+    return runWithAutoMigration(async () => {
+      // Check if an existing session exists to update, otherwise insert
+      const existing = await db
+        .select({ id: shopeeSessions.id })
+        .from(shopeeSessions)
+        .orderBy(desc(shopeeSessions.updatedAt))
+        .limit(1);
 
-    if (existing.length > 0) {
-      await db
-        .update(shopeeSessions)
-        .set({
+      if (existing.length > 0) {
+        await db
+          .update(shopeeSessions)
+          .set({
+            encryptedCookies: encrypted.ciphertext,
+            cookiesIv: encrypted.iv,
+            cookiesAuthTag: encrypted.authTag,
+            status: initialStatus,
+            username: potentialUsername,
+            lastValidatedAt: validatedAt,
+            lastError,
+            updatedAt: new Date(),
+          })
+          .where(eq(shopeeSessions.id, existing[0].id));
+      } else {
+        await db.insert(shopeeSessions).values({
           encryptedCookies: encrypted.ciphertext,
           cookiesIv: encrypted.iv,
           cookiesAuthTag: encrypted.authTag,
@@ -107,27 +148,16 @@ export class ShopeeSessionService {
           username: potentialUsername,
           lastValidatedAt: validatedAt,
           lastError,
-          updatedAt: new Date(),
-        })
-        .where(eq(shopeeSessions.id, existing[0].id));
-    } else {
-      await db.insert(shopeeSessions).values({
-        encryptedCookies: encrypted.ciphertext,
-        cookiesIv: encrypted.iv,
-        cookiesAuthTag: encrypted.authTag,
-        status: initialStatus,
-        username: potentialUsername,
-        lastValidatedAt: validatedAt,
-        lastError,
-      });
-    }
+        });
+      }
 
-    return {
-      success: initialStatus === "ACTIVE",
-      status: initialStatus,
-      error: lastError || undefined,
-      detectedKeys: parseResult.detectedKeys,
-    };
+      return {
+        success: initialStatus === "ACTIVE",
+        status: initialStatus,
+        error: lastError || undefined,
+        detectedKeys: parseResult.detectedKeys,
+      };
+    });
   }
 
   /**
@@ -138,33 +168,34 @@ export class ShopeeSessionService {
     status: ShopeeSessionStatus | "NO_SESSION";
     sessionId?: string;
   }> {
-    const records = await db
-      .select()
-      .from(shopeeSessions)
-      .orderBy(desc(shopeeSessions.updatedAt))
-      .limit(1);
+    return runWithAutoMigration(async () => {
+      const records = await db
+        .select()
+        .from(shopeeSessions)
+        .orderBy(desc(shopeeSessions.updatedAt))
+        .limit(1);
 
-    if (records.length === 0) {
-      return { cookieHeader: null, status: "NO_SESSION" };
-    }
+      if (records.length === 0) {
+        return { cookieHeader: null, status: "NO_SESSION" };
+      }
 
-    const session = records[0];
-    try {
-      const cookies = shopeeCookieService.decryptCookies({
-        ciphertext: session.encryptedCookies,
-        iv: session.cookiesIv,
-        authTag: session.cookiesAuthTag,
-      });
+      const session = records[0];
+      try {
+        const cookies = shopeeCookieService.decryptCookies({
+          ciphertext: session.encryptedCookies,
+          iv: session.cookiesIv,
+          authTag: session.cookiesAuthTag,
+        });
 
-      return {
-        cookieHeader: shopeeCookieService.toCookieHeader(cookies),
-        status: session.status,
-        sessionId: session.id,
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { cookieHeader: null, status: "INVALID" };
-    }
+        return {
+          cookieHeader: shopeeCookieService.toCookieHeader(cookies),
+          status: session.status,
+          sessionId: session.id,
+        };
+      } catch (err: unknown) {
+        return { cookieHeader: null, status: "INVALID" };
+      }
+    });
   }
 
   /**
@@ -239,8 +270,10 @@ export class ShopeeSessionService {
    * Disconnects / removes stored Shopee session.
    */
   async deleteSession(): Promise<boolean> {
-    await db.delete(shopeeSessions);
-    return true;
+    return runWithAutoMigration(async () => {
+      await db.delete(shopeeSessions);
+      return true;
+    });
   }
 }
 
