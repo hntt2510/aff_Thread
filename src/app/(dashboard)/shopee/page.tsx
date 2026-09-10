@@ -42,7 +42,9 @@ import {
   ArrowUpDown,
   SlidersHorizontal,
   Edit3,
+  Video,
 } from "lucide-react";
+import TrendDiscoveryTab from "@/components/trends/TrendDiscoveryTab";
 
 function formatCommissionRate(raw: string | number | null | undefined): string {
   if (raw === null || raw === undefined) return "—";
@@ -1123,6 +1125,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           { id: "DEALS", label: "Deals & Calculator", icon: Calculator },
           { id: "MATCHER", label: "Matcher Playground", icon: Sparkles },
           { id: "IMPORTS", label: "Catalog Import", icon: FileSpreadsheet },
+          { id: "TRENDS", label: "Trend Discovery 🎬", icon: Video },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -2599,6 +2602,9 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           </div>
         </div>
       )}
+
+      {/* TAB: TREND DISCOVERY */}
+      {activeTab === "TRENDS" && <TrendDiscoveryTab />}
     </div>
   );
 }

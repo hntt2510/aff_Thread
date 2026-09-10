@@ -51,6 +51,14 @@ export interface SchedulePostOptions extends CreatePostOptions {
   scheduledAt: Date;
 }
 
+export interface CreateDraftPostOptions {
+  accountId?: string;
+  text?: string;
+  mediaType?: PostMediaType;
+  mediaItems?: MediaItemInput[];
+  affiliateLinkIds?: string[];
+}
+
 export class PostService {
   /**
    * Publishes a post (TEXT, IMAGE, VIDEO, CAROUSEL) to Threads immediately using
@@ -272,6 +280,86 @@ export class PostService {
     }
 
     return scheduledPost;
+  }
+
+  /**
+   * Creates a post in DRAFT status.
+   * Useful for viral trend discovery, AI bait drafts, or pre-scheduling preparation.
+   */
+  async createDraftPost(options: CreateDraftPostOptions): Promise<Post> {
+    const mediaType = options.mediaType || "TEXT";
+    const rawText = options.text ? options.text.trim() : "";
+
+    let accountId = options.accountId || "";
+    let accountUsername = "draft_user";
+    let accountDisplayName = "Draft Post";
+    let accountThreadsUserId = "";
+
+    if (accountId) {
+      try {
+        const acc = await accountService.getAccount(accountId);
+        if (acc) {
+          accountUsername = acc.username;
+          accountDisplayName = acc.displayName || acc.username;
+          accountThreadsUserId = acc.threadsUserId;
+        }
+      } catch {
+        // Fallback to placeholder if account not loaded
+      }
+    } else {
+      const accounts = await accountService.listAccounts();
+      const firstActive = accounts.find((a) => a.status === "ACTIVE") || accounts[0];
+      if (firstActive) {
+        accountId = firstActive.id;
+        accountUsername = firstActive.username;
+        accountDisplayName = firstActive.displayName || firstActive.username;
+        accountThreadsUserId = firstActive.threadsUserId;
+      }
+    }
+
+    if (!accountId) {
+      throw new Error("No Threads account available to assign draft post");
+    }
+
+    const [draftPost] = await db
+      .insert(posts)
+      .values({
+        accountId,
+        accountThreadsUserId,
+        accountUsername,
+        accountDisplayName,
+        text: rawText,
+        mediaType,
+        status: "DRAFT",
+        publishAttempts: 0,
+      })
+      .returning();
+
+    if (options.mediaItems && options.mediaItems.length > 0) {
+      for (let i = 0; i < options.mediaItems.length; i++) {
+        const item = options.mediaItems[i];
+        await db.insert(postMedia).values({
+          postId: draftPost.id,
+          mediaKind: item.mediaKind,
+          sourceUrl: item.sourceUrl,
+          position: item.position ?? i,
+          altText: item.altText || null,
+          mediaAssetId: item.mediaAssetId || null,
+        });
+      }
+    }
+
+    if (options.affiliateLinkIds && options.affiliateLinkIds.length > 0) {
+      for (let i = 0; i < options.affiliateLinkIds.length; i++) {
+        await db.insert(postAffiliateLinks).values({
+          postId: draftPost.id,
+          affiliateLinkId: options.affiliateLinkIds[i],
+          position: i,
+        });
+      }
+    }
+
+    return draftPost;
   }
 
   /**

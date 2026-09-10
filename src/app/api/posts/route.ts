@@ -18,7 +18,7 @@ const postPayloadSchema = z.object({
   mediaType: z.enum(["TEXT", "IMAGE", "VIDEO", "CAROUSEL"]).default("TEXT"),
   mediaItems: z.array(mediaItemSchema).optional().default([]),
   affiliateLinkIds: z.array(z.string()).optional(),
-  mode: z.enum(["now", "schedule"]).default("now"),
+  mode: z.enum(["now", "schedule", "draft"]).default("now"),
   scheduledAt: z.string().optional(),
 });
 
@@ -100,6 +100,17 @@ export async function POST(req: NextRequest) {
         mediaItems,
         affiliateLinkIds,
         scheduledAt: scheduledDate,
+      });
+      return NextResponse.json({ success: true, post }, { status: 201 });
+    }
+
+    if (mode === "draft") {
+      const post = await postService.createDraftPost({
+        accountId,
+        text,
+        mediaType,
+        mediaItems,
+        affiliateLinkIds,
       });
       return NextResponse.json({ success: true, post }, { status: 201 });
     }
