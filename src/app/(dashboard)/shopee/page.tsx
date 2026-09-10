@@ -36,6 +36,11 @@ import {
   Trash2,
   X,
   ShieldCheck,
+  Star,
+  Store,
+  BadgePercent,
+  ArrowUpDown,
+  SlidersHorizontal,
 } from "lucide-react";
 
 interface ProductItem {
@@ -214,6 +219,24 @@ function ShopeeDealsContent() {
     longLink?: string;
     error?: string;
   } | null>(null);
+
+  // Tab: Top Rate Offers State
+  const [topOffers, setTopOffers] = useState<any[]>([]);
+  const [topOffersStats, setTopOffersStats] = useState<{ maxRate: number; avgRate: number; count: number }>({
+    maxRate: 0,
+    avgRate: 0,
+    count: 0,
+  });
+  const [loadingTopOffers, setLoadingTopOffers] = useState(false);
+  const [offerSearch, setOfferSearch] = useState("");
+  const [offerMinPrice, setOfferMinPrice] = useState("");
+  const [offerMaxPrice, setOfferMaxPrice] = useState("");
+  const [offerSortBy, setOfferSortBy] = useState<string>("rate_desc");
+  const [showJsonModal, setShowJsonModal] = useState(false);
+  const [jsonInput, setJsonInput] = useState("");
+  const [importingJson, setImportingJson] = useState(false);
+  const [jsonModalError, setJsonModalError] = useState<string | null>(null);
+
 
   // Helpers
   const copyToClipboard = (text: string) => {
@@ -427,6 +450,66 @@ function ShopeeDealsContent() {
     }
   };
 
+  const fetchTopOffers = useCallback(async () => {
+    try {
+      setLoadingTopOffers(true);
+      const params = new URLSearchParams();
+      if (offerSearch.trim()) params.append("search", offerSearch.trim());
+      if (offerMinPrice.trim()) params.append("minPrice", offerMinPrice.trim());
+      if (offerMaxPrice.trim()) params.append("maxPrice", offerMaxPrice.trim());
+      if (offerSortBy) params.append("sortBy", offerSortBy);
+      params.append("limit", "50");
+
+      const res = await fetch(`/api/shopee/top-offers?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTopOffers(data.offers || []);
+        if (data.stats) {
+          setTopOffersStats(data.stats);
+        }
+      } else {
+        setError(data.error || "Không thể tải danh sách Top Offers");
+      }
+    } catch {
+      setError("Lỗi kết nối khi tải danh sách Top Offers");
+    } finally {
+      setLoadingTopOffers(false);
+    }
+  }, [offerSearch, offerMinPrice, offerMaxPrice, offerSortBy]);
+
+  const handleImportJsonOffers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!jsonInput.trim()) {
+      setJsonModalError("Vui lòng dán dữ liệu JSON từ Shopee API.");
+      return;
+    }
+
+    try {
+      setImportingJson(true);
+      setJsonModalError(null);
+      const res = await fetch("/api/shopee/top-offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawData: jsonInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShowJsonModal(false);
+        setJsonInput("");
+        setActionSuccess(
+          `Đã nạp thành công ${data.count} sản phẩm hoa hồng cao! (Tạo mới/cập nhật: ${data.result?.upsertedProducts || data.count} sản phẩm)`
+        );
+        fetchTopOffers();
+      } else {
+        setJsonModalError(data.error || "Không thể import dữ liệu JSON Shopee.");
+      }
+    } catch {
+      setJsonModalError("Lỗi kết nối máy chủ khi nạp JSON.");
+    } finally {
+      setImportingJson(false);
+    }
+  };
+
   useEffect(() => {
     fetchAcquisitionStatus();
     fetchSessionStatus();
@@ -440,7 +523,19 @@ function ShopeeDealsContent() {
       fetchPublishedPosts();
       fetchWeeklyPool();
     }
-  }, [activeTab, fetchWeeklyPool, fetchProducts, fetchDeals, fetchPublishedPosts, fetchAcquisitionStatus, fetchSessionStatus]);
+    if (activeTab === "TOP_OFFERS") {
+      fetchTopOffers();
+    }
+  }, [
+    activeTab,
+    fetchWeeklyPool,
+    fetchProducts,
+    fetchDeals,
+    fetchPublishedPosts,
+    fetchAcquisitionStatus,
+    fetchSessionStatus,
+    fetchTopOffers,
+  ]);
 
 
   // --- Handlers ---
@@ -1015,6 +1110,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
       {/* Navigation Tabs */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 pb-2 text-xs sm:text-sm font-medium">
         {[
+          { id: "TOP_OFFERS", label: "Top Offers 🔥", icon: Flame },
           { id: "WEEKLY_POOL", label: "Weekly Pool", icon: Layers },
           { id: "PRODUCTS", label: "Catalog Products", icon: Tag },
           { id: "DEALS", label: "Deals & Calculator", icon: Calculator },
@@ -1038,6 +1134,279 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           );
         })}
       </div>
+
+      {/* TAB: TOP RATE OFFERS */}
+      {activeTab === "TOP_OFFERS" && (
+        <div className="space-y-4">
+          {/* Header Stats Bar & Actions */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-5 border border-slate-200 rounded-2xl shadow-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white shadow-xs">
+                  <Flame className="w-5 h-5" />
+                </span>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Sản Phẩm Hoa Hồng Cao (Top Rate Offers)</h2>
+                  <p className="text-xs text-slate-500">
+                    Nguồn từ Shopee Affiliate API với tỷ lệ hoa hồng tối ưu để kéo traffic và chuyển đổi
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Stats & Action Buttons */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-3 px-3 py-2 bg-orange-50/70 border border-orange-100 rounded-xl text-xs">
+                <div>
+                  <span className="text-slate-400 text-[10px] block">Tổng sản phẩm:</span>
+                  <span className="font-bold text-slate-800">{topOffersStats.count || topOffers.length}</span>
+                </div>
+                <div className="h-6 w-px bg-orange-200" />
+                <div>
+                  <span className="text-slate-400 text-[10px] block">Cao nhất:</span>
+                  <span className="font-bold text-rose-600">{topOffersStats.maxRate > 0 ? `${topOffersStats.maxRate}%` : "—"}</span>
+                </div>
+                <div className="h-6 w-px bg-orange-200" />
+                <div>
+                  <span className="text-slate-400 text-[10px] block">Trung bình:</span>
+                  <span className="font-bold text-orange-600">{topOffersStats.avgRate > 0 ? `${topOffersStats.avgRate}%` : "—"}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowJsonModal(true)}
+                className="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Nhập JSON Shopee
+              </button>
+
+              <button
+                onClick={() => fetchTopOffers()}
+                disabled={loadingTopOffers}
+                className="p-2 border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-xl text-xs font-medium transition-colors"
+                title="Làm mới danh sách"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingTopOffers ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter & Search Bar */}
+          <div className="bg-white p-4 border border-slate-200 rounded-2xl shadow-xs">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                fetchTopOffers();
+              }}
+              className="flex flex-col md:flex-row items-stretch md:items-center gap-3"
+            >
+              {/* Search */}
+              <div className="flex-1 relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm theo tên sản phẩm hoặc Shop..."
+                  value={offerSearch}
+                  onChange={(e) => setOfferSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-800"
+                />
+              </div>
+
+              {/* Price Range */}
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  placeholder="Giá từ (đ)"
+                  value={offerMinPrice}
+                  onChange={(e) => setOfferMinPrice(e.target.value)}
+                  className="w-24 sm:w-28 px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-800 font-mono"
+                />
+                <span className="text-slate-400 text-xs">-</span>
+                <input
+                  type="number"
+                  placeholder="Đến (đ)"
+                  value={offerMaxPrice}
+                  onChange={(e) => setOfferMaxPrice(e.target.value)}
+                  className="w-24 sm:w-28 px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-800 font-mono"
+                />
+              </div>
+
+              {/* Sort By */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <select
+                    value={offerSortBy}
+                    onChange={(e) => {
+                      setOfferSortBy(e.target.value);
+                    }}
+                    className="appearance-none pl-3 pr-8 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white text-slate-800 font-medium"
+                  >
+                    <option value="rate_desc">🔥 Hoa hồng cao nhất</option>
+                    <option value="price_asc">💵 Giá: Thấp đến Cao</option>
+                    <option value="price_desc">💎 Giá: Cao đến Thấp</option>
+                    <option value="sold_desc">📦 Lượt bán nhiều nhất</option>
+                  </select>
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loadingTopOffers}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  Lọc
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Offers Grid */}
+          {loadingTopOffers ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+              <Loader2 className="w-7 h-7 animate-spin mx-auto mb-2 text-orange-500" />
+              Đang tải danh sách ưu đãi hoa hồng cao...
+            </div>
+          ) : topOffers.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center space-y-4">
+              <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto text-orange-600">
+                <ShoppingBag className="w-7 h-7" />
+              </div>
+              <div className="max-w-md mx-auto space-y-1">
+                <h3 className="font-bold text-slate-900 text-base">Chưa có sản phẩm hoa hồng cao</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Nhập JSON từ Shopee Affiliate API (<code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700">/api/v3/offer/product/list</code>) hoặc chạy script import CLI để cập nhật danh mục.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowJsonModal(true)}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Dán JSON Shopee
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {topOffers.map((item) => (
+                <div
+                  key={item.id || item.itemId}
+                  className="bg-white border border-slate-200/90 rounded-2xl shadow-xs hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col group"
+                >
+                  {/* Image Container */}
+                  <div className="aspect-square relative bg-slate-100 overflow-hidden">
+                    {item.imageUrl ? (
+                      <img
+                        src={item.imageUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400 bg-slate-100">
+                        <ShoppingBag className="w-10 h-10 stroke-1" />
+                      </div>
+                    )}
+
+                    {/* Badge Commission Rate */}
+                    <div className="absolute top-2.5 left-2.5">
+                      <span className="bg-gradient-to-r from-red-600 to-orange-500 text-white font-black text-xs px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5 fill-white text-white" />
+                        Hoa hồng {item.rate}%
+                      </span>
+                    </div>
+
+                    {/* Discount Badge */}
+                    {item.discount && (
+                      <div className="absolute top-2.5 right-2.5">
+                        <span className="bg-amber-500/95 text-white font-bold text-[11px] px-2 py-0.5 rounded-md shadow-xs">
+                          {item.discount.startsWith("-") ? item.discount : `-${item.discount}`}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Seller Commission Rate Pill */}
+                    {item.sellerRate > 0 && (
+                      <div className="absolute bottom-2 left-2.5">
+                        <span className="bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-medium px-2 py-0.5 rounded-full">
+                          Shop: +{item.sellerRate}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Content */}
+                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                    {/* Shop & Rating */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 gap-2">
+                      <div className="flex items-center gap-1 truncate font-medium text-slate-700">
+                        <Store className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{item.shopName || "Shopee Mall"}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-amber-500 font-semibold flex-shrink-0">
+                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                        <span>{item.rating || "5.0"}</span>
+                      </div>
+                    </div>
+
+                    {/* Product Title */}
+                    <h4
+                      className="font-medium text-xs text-slate-900 line-clamp-2 leading-relaxed h-9"
+                      title={item.title}
+                    >
+                      {item.title}
+                    </h4>
+
+                    {/* Price & Sold Row */}
+                    <div className="space-y-1 pt-1 border-t border-slate-100">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-base font-extrabold text-orange-600 font-mono">
+                          {formatVnd(item.price)}
+                        </span>
+                        {item.originalPrice && item.originalPrice > item.price && (
+                          <span className="text-xs text-slate-400 line-through font-mono">
+                            {formatVnd(item.originalPrice)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Đã bán: <strong className="text-slate-700">{item.sold || "0"}</strong></span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        onClick={() => copyToClipboard(item.affUrl)}
+                        className="p-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-slate-600 transition-colors flex items-center justify-center"
+                        title="Sao chép Affiliate Link"
+                      >
+                        {copiedUrl === item.affUrl ? (
+                          <Check className="w-4 h-4 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
+                      <a
+                        href={item.affUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-2 px-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-1.5"
+                      >
+                        <span>Mua ngay / Lấy link</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: WEEKLY POOL */}
       {activeTab === "WEEKLY_POOL" && (
@@ -1802,6 +2171,93 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Lưu & Xác Thực Phiên
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Shopee JSON Import Modal */}
+      {showJsonModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-orange-600" />
+                <h3 className="font-bold text-slate-900 text-base">Nhập JSON Top Offers Shopee</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowJsonModal(false);
+                  setJsonModalError(null);
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <strong className="text-slate-800 font-semibold block">Cách lấy dữ liệu từ Shopee Affiliate:</strong>
+              <ol className="list-decimal pl-4 space-y-1.5">
+                <li>Truy cập <a href="https://affiliate.shopee.vn" target="_blank" rel="noopener noreferrer" className="text-orange-600 underline">affiliate.shopee.vn</a> trên trình duyệt Chrome.</li>
+                <li>Mở tab <strong>Sản phẩm hoa hồng cao</strong> (Top Offers).</li>
+                <li>Bấm <strong>F12</strong> &rarr; chọn tab <strong>Network</strong> (Mạng) &rarr; tìm request <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-800 font-mono">product/list</code>.</li>
+                <li>Chuột phải vào request &rarr; <strong>Copy</strong> &rarr; <strong>Copy response</strong>.</li>
+                <li>Dán toàn bộ nội dung JSON vào khung dưới đây và nhấn <strong>Nạp Sản Phẩm</strong>.</li>
+              </ol>
+            </div>
+
+            {jsonModalError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">{jsonModalError}</div>
+              </div>
+            )}
+
+            <form onSubmit={handleImportJsonOffers} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Nội dung Response JSON:
+                </label>
+                <textarea
+                  rows={8}
+                  value={jsonInput}
+                  onChange={(e) => setJsonInput(e.target.value)}
+                  placeholder={`{\n  "data": {\n    "list": [\n      {\n        "item_id": "55913200112",\n        "default_commission_rate": "21,5%",\n        "batch_item_for_item_card_full": { ... }\n      }\n    ]\n  }\n}`}
+                  required
+                  className="w-full font-mono text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-800"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowJsonModal(false);
+                    setJsonModalError(null);
+                  }}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={importingJson || !jsonInput.trim()}
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-2"
+                >
+                  {importingJson ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Đang xử lý & lưu...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Nạp Sản Phẩm
                     </>
                   )}
                 </button>

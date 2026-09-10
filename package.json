@@ -17,6 +17,7 @@
     "shopee:login": "npm run --prefix workers/shopee-session login",
     "shopee:status": "npm run --prefix workers/shopee-session status",
     "shopee:weekly": "npm run --prefix workers/shopee-session weekly",
+    "shopee:import-offers": "tsx scripts/import-shopee-offers.ts",
     "test:worker": "npm run --prefix workers/shopee-session test"
   },
   "dependencies": {
