@@ -71,4 +71,49 @@ describe("DealReplyComposerService", () => {
     expect(res.text).toContain("https://s.shopee.vn/linkA");
     expect(res.text).toContain("https://s.shopee.vn/linkB");
   });
+
+  it("highlights voucher code on its own standalone line for easy mobile copying", () => {
+    const calculation = finalPriceCalculator.calculate({
+      observedPrice: 350000,
+      voucherCode: "SHOPEE99",
+      voucherDiscountType: "PERCENT",
+      voucherDiscountPercent: 25,
+    });
+
+    const res = dealReplyComposerService.composeReply([
+      {
+        title: "Bàn chải điện Sonic X",
+        directAffiliateUrl: "https://s.shopee.vn/testvoucher1",
+        calculation,
+        voucherCode: "SHOPEE99",
+        voucherDiscountPercent: 25,
+      },
+    ]);
+
+    expect(res.text).toContain("🎟️ Mã voucher (chạm để copy):\nSHOPEE99");
+    expect(res.text).toContain("https://s.shopee.vn/testvoucher1");
+    // Verify the code appears strictly on its own line
+    const lines = res.text.split("\n");
+    expect(lines).toContain("SHOPEE99");
+  });
+
+  it("highlights direct discount rate and link when no voucher exists", () => {
+    const calculation = finalPriceCalculator.calculate({
+      observedPrice: 150000,
+      originalPrice: 200000, // 25% discount
+    });
+
+    const res = dealReplyComposerService.composeReply([
+      {
+        title: "Áo thun oversize cotton 100%",
+        directAffiliateUrl: "https://s.shopee.vn/directdeal1",
+        calculation,
+        discountRate: 25,
+      },
+    ]);
+
+    expect(res.text).toContain("Giảm trực tiếp 25%: chỉ còn 150.000đ");
+    expect(res.text).toContain("https://s.shopee.vn/directdeal1");
+    expect(res.text).not.toContain("Mã voucher");
+  });
 });

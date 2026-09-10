@@ -19,6 +19,70 @@ export interface PoolConfig {
   minPoolSize?: number; // default 40
   maxPoolSize?: number; // default 100
   maxPerCategory?: number; // default 15
+  enforceDynamicRating?: boolean; // default true
+}
+
+export interface DynamicRatingFilterInput {
+  isOfficialShop?: boolean | null;
+  totalRatings?: number | null;
+  ratingStar?: number | null;
+  historicalSold?: number | null;
+  stock?: number | null;
+}
+
+export interface DynamicRatingEligibilityResult {
+  isEligible: boolean;
+  reason?: string;
+}
+
+/**
+ * Evaluates product eligibility against dynamic rating and volume thresholds:
+ * - Drops products with historical_sold < 50 or stock <= 0.
+ * - If is_official_shop == true (Shopee Mall) AND total_ratings >= 50: Accept rating_star >= 4.5.
+ * - Otherwise: Strictly require rating_star >= 4.6.
+ */
+export function evaluateDynamicRatingEligibility(
+  input: DynamicRatingFilterInput
+): DynamicRatingEligibilityResult {
+  const sold = input.historicalSold ?? 0;
+  if (sold < 50) {
+    return {
+      isEligible: false,
+      reason: `Historical sold (${sold}) < 50 minimum threshold`,
+    };
+  }
+
+  // Stock check: if stock is explicitly provided and <= 0, drop product
+  if (input.stock !== undefined && input.stock !== null && input.stock <= 0) {
+    return {
+      isEligible: false,
+      reason: `Product stock (${input.stock}) <= 0 (out of stock)`,
+    };
+  }
+
+  const rating = input.ratingStar ?? 0;
+  const isOfficial = Boolean(input.isOfficialShop);
+  const totalRatings = input.totalRatings ?? 0;
+
+  // Shopee Mall / Official Shop with >= 50 total reviews accepts rating >= 4.5
+  if (isOfficial && totalRatings >= 50) {
+    if (rating < 4.5) {
+      return {
+        isEligible: false,
+        reason: `Shopee Mall product rating (${rating}) < 4.5 threshold`,
+      };
+    }
+  } else {
+    // All other sellers strictly require rating >= 4.6
+    if (rating < 4.6) {
+      return {
+        isEligible: false,
+        reason: `Standard product rating (${rating}) < 4.6 strict threshold`,
+      };
+    }
+  }
+
+  return { isEligible: true };
 }
 
 /**
@@ -67,25 +131,86 @@ export class WeeklyPoolService {
       }
     }
 
-    // 2. Score all candidate products using CatalogScoringService
-    const scoredCandidates = Array.from(productOfferMap.values()).map(({ product, offer }) => {
+    // 2. Score and filter all candidate products using Dynamic Rating and CatalogScoringService
+    const enforceRating = config?.enforceDynamicRating ?? true;
+    const scoredCandidates: Array<{
+      product: typeof affiliateProducts.$inferSelect;
+      offer: typeof affiliateProductOffers.$inferSelect | null;
+      catalogScore: number;
+      reason: string;
+      category: string;
+    }> = [];
+
+    for (const { product, offer } of productOfferMap.values()) {
+      let meta: any = {};
+      if (offer?.sourceMetadataJson) {
+        try {
+          meta = JSON.parse(offer.sourceMetadataJson);
+        } catch {
+          // ignore
+        }
+      }
+
+      const isOfficialShop = Boolean(
+        meta.isOfficialShop ??
+        meta.is_official_shop ??
+        (/official|flagship|shopee\s*mall|mall/i.test(product.category || "") ||
+         /official|flagship|shopee\s*mall|mall/i.test(meta.shopName || ""))
+      );
+      const totalRatings = Number(meta.totalRatings ?? meta.total_ratings ?? meta.ratingCount ?? 0);
+      const ratingStar = Number(meta.rating ?? meta.ratingStar ?? 5);
+      const soldCount = offer?.soldCount ?? Number(meta.soldCount ?? meta.historicalSold ?? 0);
+      const stock = meta.stock !== undefined ? Number(meta.stock) : 999;
+
+      const hasVoucher = Boolean(
+        meta.voucherCode ||
+        meta.voucher_code ||
+        meta.voucherInfo?.voucher_code ||
+        meta.voucher_info?.voucher_code ||
+        meta.voucherInfo?.code
+      );
+      const voucherCode =
+        meta.voucherCode ||
+        meta.voucher_code ||
+        meta.voucherInfo?.voucher_code ||
+        meta.voucher_info?.voucher_code ||
+        meta.voucherInfo?.code ||
+        null;
+
+      // Apply Dynamic Rating & Stock/Sold Filter if enabled
+      if (enforceRating) {
+        const eligibility = evaluateDynamicRatingEligibility({
+          isOfficialShop,
+          totalRatings,
+          ratingStar,
+          historicalSold: soldCount,
+          stock,
+        });
+
+        if (!eligibility.isEligible) {
+          continue; // Disqualify product from weekly pool
+        }
+      }
+
       const scoringResult = catalogScoringService.evaluate({
         commissionRate: offer?.commissionRate,
         commissionAmount: offer?.commissionAmount,
-        soldCount: offer?.soldCount,
+        soldCount,
         capturedAt: offer?.capturedAt,
         lastSeenAt: product.lastSeenAt,
         category: product.category,
+        hasVoucher,
+        voucherCode,
       });
 
-      return {
+      scoredCandidates.push({
         product,
         offer,
         catalogScore: scoringResult.score,
         reason: scoringResult.explanation,
         category: product.category || "General",
-      };
-    });
+      });
+    }
 
     // Sort descending by catalog score
     scoredCandidates.sort((a, b) => b.catalogScore - a.catalogScore);

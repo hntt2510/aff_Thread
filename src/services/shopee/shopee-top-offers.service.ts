@@ -6,7 +6,7 @@ import {
 } from "@/db/schema";
 import { eq, desc, asc, and, ilike, gte, lte, sql } from "drizzle-orm";
 import { normalizeVietnameseText } from "./relevance-evaluator.service";
-import { getCurrentIsoWeek } from "./weekly-pool.service";
+import { getCurrentIsoWeek, evaluateDynamicRatingEligibility } from "./weekly-pool.service";
 
 export interface RawShopeeProductItem {
   item_id?: string | number;
@@ -39,8 +39,7 @@ export interface RawShopeeProductItem {
   soldCount?: string | number;
   shop_name?: string;
   shopName?: string;
-  rating?: number;
-  item_rating?: { rating_star?: number };
+  item_rating?: { rating_star?: number; total_ratings?: number; rating_count?: number[]; [key: string]: any };
   batch_item_for_item_card_full?: {
     itemid?: string | number;
     name?: string;
@@ -53,9 +52,17 @@ export interface RawShopeeProductItem {
     historical_sold_text?: string | number;
     sold?: string | number;
     shop_name?: string;
-    item_rating?: { rating_star?: number };
+    item_rating?: { rating_star?: number; total_ratings?: number; rating_count?: number[]; [key: string]: any };
+    is_official_shop?: boolean;
+    total_ratings?: number;
+    stock?: number;
+    voucher_info?: any;
     [key: string]: any;
   };
+  is_official_shop?: boolean;
+  total_ratings?: number;
+  stock?: number;
+  voucher_info?: any;
   [key: string]: any;
 }
 
@@ -128,6 +135,11 @@ export interface MappedShopeeOffer {
   soldCount: number;
   rating: number;
   shopName: string;
+  isOfficialShop?: boolean;
+  totalRatings?: number;
+  stock?: number;
+  voucherCode?: string | null;
+  voucherInfo?: any;
 }
 
 export interface TopOffersFilter {
@@ -505,6 +517,35 @@ export class ShopeeTopOffersService {
       ""
     ).trim();
 
+    const isOfficialShop = Boolean(
+      card.is_official_shop ??
+      item.is_official_shop ??
+      card.show_official_shop_label ??
+      item.show_official_shop_label ??
+      /official|flagship|shopee\s*mall|mall/i.test(shopName)
+    );
+
+    const totalRatings = Number(
+      card.item_rating?.total_ratings ??
+      card.item_rating?.rating_count?.[0] ??
+      card.rating_count ??
+      card.total_ratings ??
+      item.total_ratings ??
+      item.item_rating?.total_ratings ??
+      0
+    ) || 0;
+
+    const stock = card.stock !== undefined
+      ? Number(card.stock)
+      : (item.stock !== undefined ? Number(item.stock) : 999);
+
+    const rawVoucherInfo = card.voucher_info ?? item.voucher_info ?? card.voucher ?? item.voucher ?? null;
+    const voucherCode =
+      rawVoucherInfo?.voucher_code ||
+      rawVoucherInfo?.code ||
+      rawVoucherInfo?.voucherCode ||
+      null;
+
     return {
       itemId,
       title,
@@ -519,6 +560,11 @@ export class ShopeeTopOffersService {
       soldCount,
       rating,
       shopName,
+      isOfficialShop,
+      totalRatings,
+      stock,
+      voucherCode,
+      voucherInfo: rawVoucherInfo,
     };
   }
 
@@ -542,15 +588,41 @@ export class ShopeeTopOffersService {
   }
 
   /**
-   * Filters out items without commission (rate <= 0) and sorts by rate descending
+   * Filters offers and sorts prioritizing voucher-backed products and descending rate.
+   * Optionally enforces dynamic rating threshold.
    */
-  filterAndSortOffers(rawList: RawShopeeProductItem[]): MappedShopeeOffer[] {
+  filterAndSortOffers(
+    rawList: RawShopeeProductItem[],
+    options?: { requireDynamicRating?: boolean }
+  ): MappedShopeeOffer[] {
     if (!Array.isArray(rawList)) return [];
 
-    return rawList
+    let offers = rawList
       .map((item) => this.transformShopeeOffer(item))
-      .filter((offer) => offer.itemId && offer.title && offer.rate > 0)
-      .sort((a, b) => b.rate - a.rate);
+      .filter((offer) => offer.itemId && offer.title && offer.rate > 0);
+
+    if (options?.requireDynamicRating) {
+      offers = offers.filter((offer) => {
+        const eligibility = evaluateDynamicRatingEligibility({
+          isOfficialShop: offer.isOfficialShop,
+          totalRatings: offer.totalRatings,
+          ratingStar: offer.rating,
+          historicalSold: offer.soldCount,
+          stock: offer.stock,
+        });
+        return eligibility.isEligible;
+      });
+    }
+
+    return offers.sort((a, b) => {
+      // Prioritize products with valid voucher codes
+      const aVoucher = a.voucherCode ? 1 : 0;
+      const bVoucher = b.voucherCode ? 1 : 0;
+      if (bVoucher !== aVoucher) {
+        return bVoucher - aVoucher;
+      }
+      return b.rate - a.rate;
+    });
   }
 
   /**
@@ -664,6 +736,12 @@ export class ShopeeTopOffersService {
         originalPrice: offer.originalPrice,
         price: offer.price,
         soldText: offer.sold,
+        soldCount: offer.soldCount,
+        isOfficialShop: offer.isOfficialShop,
+        totalRatings: offer.totalRatings,
+        stock: offer.stock,
+        voucherCode: offer.voucherCode,
+        voucherInfo: offer.voucherInfo,
       });
 
       // Crucial: prioritize s.shopee.vn over long universal links

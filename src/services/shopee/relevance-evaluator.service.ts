@@ -90,12 +90,17 @@ export class DeterministicKeywordRelevanceEvaluator implements ProductRelevanceE
       }
     }
 
-    // Check category match
+    // Check category match: match full category name or phrase in post text, or specific category token
     let categoryMatch = false;
     if (candidate.category) {
       const categoryNorm = normalizeVietnameseText(candidate.category);
-      const catTokens = categoryNorm.split(" ").filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
-      categoryMatch = catTokens.some((ct) => postTokens.has(ct));
+      if (categoryNorm.length >= 2) {
+        if (categoryNorm.includes(" ")) {
+          categoryMatch = postNorm.includes(categoryNorm);
+        } else if (!STOP_WORDS.has(categoryNorm)) {
+          categoryMatch = postTokens.has(categoryNorm);
+        }
+      }
     }
 
     // Score calculation

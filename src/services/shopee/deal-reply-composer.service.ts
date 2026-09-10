@@ -14,6 +14,7 @@ export interface DealReplyProductItem {
   voucherCode?: string | null;
   voucherDiscountPercent?: number | null;
   voucherDiscountAmount?: number | null;
+  discountRate?: number | null;
 }
 
 export interface DealReplyComposerOptions {
@@ -112,7 +113,8 @@ export class DealReplyComposerService {
 
       const pct = item.voucherDiscountPercent ?? calculation.evidence?.voucherDiscountPercent;
       const amt = item.voucherDiscountAmount ?? calculation.evidence?.voucherDiscountAmount;
-      const code = item.voucherCode ?? calculation.evidence?.voucherCode;
+      const rawCode = item.voucherCode ?? calculation.evidence?.voucherCode;
+      const code = typeof rawCode === "string" ? rawCode.trim() : null;
 
       let voucherDesc = "";
       if (pct) {
@@ -141,7 +143,32 @@ export class DealReplyComposerService {
           `• Giá: ${basePriceFormatted} → áp ${voucherDesc} ước tính còn ~${finalPriceFormatted} (tiết kiệm ${formatVnd(calculation.discountAmount)}).`
         );
       } else {
-        lines.push(`• Giá tham khảo: ${basePriceFormatted}`);
+        // Direct discount when no voucher is active/applicable
+        const directDiscountPct =
+          item.discountRate ??
+          (calculation.evidence?.originalPrice && calculation.evidence.originalPrice > calculation.basePrice
+            ? Math.round(
+                ((calculation.evidence.originalPrice - calculation.basePrice) /
+                  calculation.evidence.originalPrice) *
+                  100
+              )
+            : null);
+
+        if (directDiscountPct && directDiscountPct > 0) {
+          const originalFormatted = calculation.evidence?.originalPrice
+            ? ` (gốc ${formatVnd(calculation.evidence.originalPrice)})`
+            : "";
+          lines.push(
+            `• Giảm trực tiếp ${directDiscountPct}%: chỉ còn ${basePriceFormatted}${originalFormatted}`
+          );
+        } else {
+          lines.push(`• Giá tham khảo: ${basePriceFormatted}`);
+        }
+      }
+
+      // If voucher exists: Highlight voucher code clearly on its own line for easy mobile copying
+      if (code) {
+        lines.push(`🎟️ Mã voucher (chạm để copy):\n${code}`);
       }
 
       // Direct Shopee URL (strictly direct, never wrapped)

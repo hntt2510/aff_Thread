@@ -56,4 +56,17 @@ describe("ProductMatcherService", () => {
     const highFilter = productMatcherService.rankCandidates(postText, candidates, { minMatchScore: 95 });
     expect(highFilter.length).toBe(0);
   });
+
+  it("falls back to Top 1 highest-scoring pool deal when no direct keyword or category match is found", () => {
+    const irrelevantPost = "Hôm nay thời tiết đẹp đi dạo ngắm hoàng hôn ven hồ Tây";
+    const fallbackResults = productMatcherService.rankCandidates(irrelevantPost, candidates, { topN: 3 });
+
+    expect(fallbackResults.length).toBe(1);
+    expect(fallbackResults[0].isFallback).toBe(true);
+    expect(fallbackResults[0].rank).toBe(1);
+    // prod-1: deal 90 * 0.6 + catalog 85 * 0.4 = 88 (highest in candidates)
+    expect(fallbackResults[0].product.id).toBe("prod-1");
+    expect(fallbackResults[0].matchedKeywords).toEqual([]);
+    expect(fallbackResults[0].explanation).toContain("Fallback to Top 1 highest-scoring deal");
+  });
 });

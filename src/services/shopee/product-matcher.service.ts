@@ -22,6 +22,8 @@ export interface MatcherCandidateItem {
   dealOpportunityBreakdown?: DealOpportunityBreakdown;
   dealCalculation?: FinalPriceCalculationResult;
   performanceScore?: number;
+  voucherCode?: string | null;
+  discountRate?: number | null;
 }
 
 export interface MatcherWeights {
@@ -43,6 +45,7 @@ export interface RankedProductMatch {
   };
   matchedKeywords: string[];
   explanation: string;
+  isFallback?: boolean;
 }
 
 export interface ProductMatcherOptions {
@@ -50,6 +53,7 @@ export interface ProductMatcherOptions {
   weights?: MatcherWeights;
   minMatchScore?: number; // default 30
   relevanceEvaluator?: ProductRelevanceEvaluator;
+  disableFallback?: boolean;
 }
 
 export class ProductMatcherService {
@@ -62,6 +66,7 @@ export class ProductMatcherService {
 
   /**
    * Matches and ranks candidates against a Threads post context.
+   * If no direct keyword or category match is found, falls back to Top 1 highest-scoring deal in pool.
    */
   rankCandidates(
     postText: string,
@@ -73,7 +78,7 @@ export class ProductMatcherService {
     const topN = options?.topN ?? 3;
     const minScore = options?.minMatchScore ?? 0;
 
-    const scoredItems: Array<Omit<RankedProductMatch, "rank">> = candidates.map((item) => {
+    const scoredItems = candidates.map((item) => {
       // 1. Relevance Score (0–100)
       const relResult = evaluator.evaluate({ postText }, {
         id: item.id,
@@ -81,6 +86,7 @@ export class ProductMatcherService {
         category: item.category,
       });
       const relevanceScore = relResult.score;
+      const hasDirectMatch = relResult.matchedKeywords.length > 0 || relResult.categoryMatch;
 
       // 2. Catalog Score (0–100)
       const catalogScore = Math.min(100, Math.max(0, item.catalogScore ?? 50));
@@ -111,20 +117,60 @@ export class ProductMatcherService {
           performance: performanceScore,
         },
         matchedKeywords: relResult.matchedKeywords,
+        hasDirectMatch,
         explanation,
       };
     });
 
-    // Sort descending by total score
-    scoredItems.sort((a, b) => b.totalMatchScore - a.totalMatchScore);
+    const hasAnyDirectMatch = scoredItems.some((i) => i.hasDirectMatch);
 
-    // Filter by min score & assign ranks
-    const filtered = scoredItems.filter((i) => i.totalMatchScore >= minScore);
+    if (hasAnyDirectMatch) {
+      // Direct matches found: sort descending and filter by min score
+      scoredItems.sort((a, b) => b.totalMatchScore - a.totalMatchScore);
+      const filtered = scoredItems.filter((i) => i.totalMatchScore >= minScore);
 
-    return filtered.slice(0, topN).map((item, idx) => ({
-      ...item,
-      rank: idx + 1,
-    }));
+      return filtered.slice(0, topN).map((item, idx) => ({
+        product: item.product,
+        totalMatchScore: item.totalMatchScore,
+        rank: idx + 1,
+        components: item.components,
+        matchedKeywords: item.matchedKeywords,
+        explanation: item.explanation,
+        isFallback: false,
+      }));
+    }
+
+    // No direct keyword or category match found: Fallback to Top 1 highest-scoring deal in current Pool
+    if (candidates.length === 0 || options?.disableFallback) {
+      return [];
+    }
+
+    const bestDeal = [...candidates].sort((a, b) => {
+      const scoreA = (a.dealOpportunityScore ?? 50) * 0.6 + (a.catalogScore ?? 50) * 0.4;
+      const scoreB = (b.dealOpportunityScore ?? 50) * 0.6 + (b.catalogScore ?? 50) * 0.4;
+      return scoreB - scoreA;
+    })[0];
+
+    const fallbackScore = Math.round(
+      (bestDeal.dealOpportunityScore ?? 50) * 0.6 + (bestDeal.catalogScore ?? 50) * 0.4
+    );
+
+    return [
+      {
+        product: bestDeal,
+        totalMatchScore: fallbackScore,
+        rank: 1,
+        isFallback: true,
+        components: {
+          relevance: 0,
+          catalog: bestDeal.catalogScore ?? 50,
+          deal: bestDeal.dealOpportunityScore ?? 50,
+          performance: bestDeal.performanceScore ?? 50,
+        },
+        matchedKeywords: [],
+        explanation: "No direct keyword or category match found in post content. Fallback to Top 1 highest-scoring deal in current pool.",
+      },
+    ];
   }
 }
 

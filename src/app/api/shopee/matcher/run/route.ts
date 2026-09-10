@@ -149,6 +149,8 @@ export async function POST(req: NextRequest) {
           title: topMatch.product.title,
           directAffiliateUrl: topMatch.product.affiliateUrl,
           calculation,
+          voucherCode: topMatch.product.voucherCode ?? calculation.evidence?.voucherCode,
+          discountRate: topMatch.product.discountRate,
         },
       ]);
       replyPreview = composed;

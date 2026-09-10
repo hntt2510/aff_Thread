@@ -15,6 +15,8 @@ export interface CatalogScoringInput {
   capturedAt?: Date | string | null;
   lastSeenAt?: Date | string | null;
   category?: string | null;
+  hasVoucher?: boolean;
+  voucherCode?: string | null;
 }
 
 export interface CatalogScoreBreakdown {
@@ -25,6 +27,7 @@ export interface CatalogScoreBreakdown {
     popularity: number; // Max 35
     performance: number; // Max 20
     freshness: number; // Max 15
+    voucherBonus?: number; // Max 10
   };
   signalsUsed: Record<string, any>;
   missingSignals: string[];
@@ -160,12 +163,28 @@ export class CatalogScoringService {
       missingSignals.push("freshness");
     }
 
+    // 5. Voucher Prioritization Boost (Max +10)
+    // Boost product score if a valid voucher exists
+    let voucherBonus = 0;
+    const hasValidVoucher = Boolean(
+      input.hasVoucher || (input.voucherCode && String(input.voucherCode).trim().length > 0)
+    );
+    if (hasValidVoucher) {
+      voucherBonus = 10;
+      signalsUsed.voucherPrioritized = true;
+      if (input.voucherCode) {
+        signalsUsed.voucherCode = String(input.voucherCode).trim();
+      }
+    }
+
     const totalScore = Math.min(
       100,
-      Math.max(0, commissionScore + popularityScore + performanceScore + freshnessScore)
+      Math.max(0, commissionScore + popularityScore + performanceScore + freshnessScore + voucherBonus)
     );
 
     const explanation = `Catalog Score: ${totalScore}/100 | Commission: +${commissionScore}, Popularity: +${popularityScore}, Historical Perf: +${performanceScore}, Freshness: +${freshnessScore}${
+      voucherBonus > 0 ? `, Voucher Boost: +${voucherBonus}` : ""
+    }${
       missingSignals.length > 0 ? ` (Missing: ${missingSignals.join(", ")})` : ""
     }`;
 
@@ -177,6 +196,7 @@ export class CatalogScoringService {
         popularity: popularityScore,
         performance: performanceScore,
         freshness: freshnessScore,
+        voucherBonus,
       },
       signalsUsed,
       missingSignals,
