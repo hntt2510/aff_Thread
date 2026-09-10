@@ -9,10 +9,12 @@ import {
   weeklyProductPool,
   affiliateProducts,
   affiliateProductOffers,
+  productDealObservations,
   WeeklyProductPoolItem,
 } from "@/db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { catalogScoringService } from "./catalog-scoring.service";
+import { extractAndCalculateShopeeDeal } from "./automated-deal-pipeline";
 
 export interface PoolConfig {
   targetPoolSize?: number; // default 60
@@ -246,19 +248,85 @@ export class WeeklyPoolService {
       return [];
     }
 
-    const rowsToInsert = selected.map((item, idx) => ({
-      weekStart: week,
-      productId: item.product.id,
-      offerId: item.offer?.id || null,
-      rank: idx + 1,
-      catalogScore: item.catalogScore,
-      reasonJson: JSON.stringify({
-        rank: idx + 1,
-        explanation: item.reason,
-        category: item.category,
-      }),
-      selectedAt: new Date(),
-    }));
+    const rowsToInsert = await Promise.all(
+      selected.map(async (item, idx) => {
+        let meta: any = {};
+        if (item.offer?.sourceMetadataJson) {
+          try {
+            meta = JSON.parse(item.offer.sourceMetadataJson);
+          } catch {
+            // ignore
+          }
+        }
+
+        let dealCalculation = meta.calculation;
+        let estimatedFinalPrice = meta.estimatedFinalPrice;
+        let dealOpportunity = meta.dealOpportunity || { score: meta.dealOpportunityScore ?? 50 };
+
+        if (!dealCalculation) {
+          const dealFacts = extractAndCalculateShopeeDeal({
+            price: meta.price ?? meta.observedPrice,
+            priceBeforeDiscount: meta.originalPrice,
+            voucherInfo: meta.voucherInfo,
+            voucherCode: meta.voucherCode,
+            commissionRate: item.offer?.commissionRate,
+          });
+          dealCalculation = dealFacts.calculation;
+          estimatedFinalPrice = dealFacts.estimatedFinalPrice;
+          dealOpportunity = dealFacts.dealOpportunity;
+        }
+
+        // Ensure product_deal_observations has observation for each pool item
+        const [existingObs] = await db
+          .select()
+          .from(productDealObservations)
+          .where(eq(productDealObservations.productId, item.product.id))
+          .limit(1);
+
+        if (!existingObs && dealCalculation) {
+          await db.insert(productDealObservations).values({
+            productId: item.product.id,
+            offerId: item.offer?.id || null,
+            observedAt: new Date(),
+            observedPrice: dealCalculation.basePrice,
+            originalPrice: dealCalculation.evidence?.originalPrice || dealCalculation.basePrice,
+            currency: "VND",
+            voucherCode: dealCalculation.evidence?.voucherCode || null,
+            voucherDiscountType: dealCalculation.evidence?.voucherDiscountType || null,
+            voucherDiscountPercent: dealCalculation.evidence?.voucherDiscountPercent
+              ? String(dealCalculation.evidence.voucherDiscountPercent)
+              : null,
+            voucherDiscountAmount: dealCalculation.evidence?.voucherDiscountAmount || null,
+            voucherMaxDiscount: dealCalculation.evidence?.voucherMaxDiscount || null,
+            voucherMinSpend: dealCalculation.evidence?.voucherMinSpend || null,
+            source: "SHOPEE_POOL_AUTO",
+            confidence: "1.00",
+            rawMetadataJson: JSON.stringify({
+              calculation: dealCalculation,
+              dealOpportunity,
+              estimatedFinalPrice,
+            }),
+          });
+        }
+
+        return {
+          weekStart: week,
+          productId: item.product.id,
+          offerId: item.offer?.id || null,
+          rank: idx + 1,
+          catalogScore: item.catalogScore,
+          reasonJson: JSON.stringify({
+            rank: idx + 1,
+            explanation: item.reason,
+            category: item.category,
+            calculation: dealCalculation,
+            dealOpportunity,
+            estimatedFinalPrice,
+          }),
+          selectedAt: new Date(),
+        };
+      })
+    );
 
     const inserted = await db.insert(weeklyProductPool).values(rowsToInsert).returning();
     return inserted;
@@ -280,7 +348,44 @@ export class WeeklyPoolService {
       .where(eq(weeklyProductPool.weekStart, week))
       .orderBy(weeklyProductPool.rank);
 
-    return poolRows;
+    return poolRows.map((row) => {
+      let dealCalculation: any = null;
+      let estimatedFinalPrice: number | null = null;
+      let dealOpportunityScore: number = 50;
+
+      if (row.poolItem.reasonJson) {
+        try {
+          const reason = JSON.parse(row.poolItem.reasonJson);
+          if (reason.calculation) {
+            dealCalculation = reason.calculation;
+            estimatedFinalPrice = reason.estimatedFinalPrice ?? reason.calculation.estimatedFinalPrice;
+            dealOpportunityScore = reason.dealOpportunity?.score ?? 50;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!dealCalculation && row.offer?.sourceMetadataJson) {
+        try {
+          const meta = JSON.parse(row.offer.sourceMetadataJson);
+          if (meta.calculation) {
+            dealCalculation = meta.calculation;
+            estimatedFinalPrice = meta.estimatedFinalPrice ?? meta.calculation.estimatedFinalPrice;
+            dealOpportunityScore = meta.dealOpportunityScore ?? 50;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        ...row,
+        dealCalculation,
+        estimatedFinalPrice,
+        dealOpportunityScore,
+      };
+    });
   }
 
   /**

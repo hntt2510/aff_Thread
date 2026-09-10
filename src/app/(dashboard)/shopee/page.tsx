@@ -41,7 +41,19 @@ import {
   BadgePercent,
   ArrowUpDown,
   SlidersHorizontal,
+  Edit3,
 } from "lucide-react";
+
+function formatCommissionRate(raw: string | number | null | undefined): string {
+  if (raw === null || raw === undefined) return "—";
+  const str = String(raw).replace("%", "").replace(",", ".").trim();
+  const val = parseFloat(str);
+  if (isNaN(val)) return "—";
+  if (val > 0 && val <= 1.0) {
+    return `${(val * 100).toFixed(1)}%`;
+  }
+  return `${val.toFixed(1)}%`;
+}
 
 interface ProductItem {
   id: string;
@@ -62,6 +74,7 @@ interface ProductItem {
     commissionRate: string | null;
     commissionAmount: number | null;
     soldCount: number | null;
+    sourceMetadataJson?: string | null;
     capturedAt: string;
   } | null;
 }
@@ -88,16 +101,22 @@ interface PoolItem {
     commissionRate: string | null;
     commissionAmount: number | null;
     soldCount: number | null;
+    sourceMetadataJson?: string | null;
   } | null;
+  dealCalculation?: any;
+  estimatedFinalPrice?: number | null;
+  dealOpportunityScore?: number;
 }
 
 interface DealObservationItem {
   observation: {
     id: string;
+    productId?: string | null;
     observedAt: string;
     observedPrice: number | null;
     originalPrice: number | null;
     voucherCode: string | null;
+    voucherDiscountType?: string | null;
     voucherDiscountPercent: string | null;
     voucherDiscountAmount: number | null;
     voucherMaxDiscount: number | null;
@@ -161,6 +180,8 @@ function ShopeeDealsContent() {
   // Tab 4: Matcher Playground State
   const [publishedPosts, setPublishedPosts] = useState<any[]>([]);
   const [selectedPostId, setSelectedPostId] = useState("");
+  const [matcherMode, setMatcherMode] = useState<"SELECT" | "CUSTOM">("CUSTOM");
+  const [customMatcherText, setCustomMatcherText] = useState("");
   const [matcherResults, setMatcherResults] = useState<any>(null);
   const [runningMatcher, setRunningMatcher] = useState(false);
   const [creatingDraftPlan, setCreatingDraftPlan] = useState(false);
@@ -599,6 +620,74 @@ function ShopeeDealsContent() {
   ]);
 
 
+  const handleSelectCalcProduct = useCallback(
+    (prodId: string) => {
+      setCalcProductId(prodId);
+      if (!prodId) return;
+
+      // 1. Check if an observation already exists in dealObservations
+      const existingObs = dealObservations.find(
+        (o) => o.product?.id === prodId || o.observation?.productId === prodId
+      );
+      if (existingObs?.observation) {
+        const obs = existingObs.observation;
+        if (obs.observedPrice) setCalcBasePrice(String(obs.observedPrice));
+        if (obs.originalPrice) setCalcOriginalPrice(String(obs.originalPrice));
+        if (obs.voucherDiscountType) setCalcVoucherType(obs.voucherDiscountType as any);
+        if (obs.voucherDiscountPercent || obs.voucherDiscountAmount) {
+          setCalcVoucherValue(String(obs.voucherDiscountPercent || obs.voucherDiscountAmount));
+        }
+        if (obs.voucherMaxDiscount) setCalcMaxDiscount(String(obs.voucherMaxDiscount));
+        if (obs.voucherMinSpend) setCalcMinSpend(String(obs.voucherMinSpend));
+        if (obs.voucherValidFrom) {
+          try {
+            setCalcValidFrom(new Date(obs.voucherValidFrom).toISOString().slice(0, 16));
+          } catch {}
+        }
+        if (obs.voucherValidUntil) {
+          try {
+            setCalcValidUntil(new Date(obs.voucherValidUntil).toISOString().slice(0, 16));
+          } catch {}
+        }
+        return;
+      }
+
+      // 2. Check in products / latestOffer
+      const p = products.find((x) => x.id === prodId);
+      if (p?.latestOffer) {
+        let meta: any = {};
+        if (p.latestOffer.sourceMetadataJson) {
+          try {
+            meta = JSON.parse(p.latestOffer.sourceMetadataJson);
+          } catch {}
+        }
+        const price = meta.price ?? meta.observedPrice ?? 0;
+        const orig = meta.originalPrice ?? price;
+        if (price > 0) setCalcBasePrice(String(price));
+        if (orig > 0) setCalcOriginalPrice(String(orig));
+
+        const vPct = meta.calculation?.evidence?.voucherDiscountPercent || meta.voucherInfo?.discount_percentage;
+        const vAmt = meta.calculation?.evidence?.voucherDiscountAmount || meta.voucherInfo?.discount_value;
+
+        if (vPct) {
+          setCalcVoucherType("PERCENT");
+          setCalcVoucherValue(String(vPct));
+        } else if (vAmt) {
+          setCalcVoucherType("FIXED");
+          setCalcVoucherValue(String(vAmt));
+        }
+      }
+    },
+    [dealObservations, products]
+  );
+
+  // Auto-select first product in calculator if none selected
+  useEffect(() => {
+    if (!calcProductId && products.length > 0) {
+      handleSelectCalcProduct(products[0].id);
+    }
+  }, [calcProductId, products, handleSelectCalcProduct]);
+
   // --- Handlers ---
   const handleGeneratePool = async () => {
     try {
@@ -743,17 +832,32 @@ function ShopeeDealsContent() {
   };
 
   const handleRunMatcher = async () => {
-    if (!selectedPostId) {
-      alert("Please select a target post");
-      return;
+    let bodyPayload: any = { topN: 3 };
+    if (matcherMode === "CUSTOM") {
+      if (!customMatcherText.trim()) {
+        alert("Please enter post text to match");
+        return;
+      }
+      bodyPayload.customText = customMatcherText.trim();
+      if (selectedPostId) {
+        bodyPayload.postId = selectedPostId;
+      }
+    } else {
+      if (!selectedPostId && !customMatcherText.trim()) {
+        alert("Please select a target post or enter text");
+        return;
+      }
+      if (selectedPostId) bodyPayload.postId = selectedPostId;
+      if (customMatcherText.trim()) bodyPayload.customText = customMatcherText.trim();
     }
+
     try {
       setRunningMatcher(true);
       setError(null);
       const res = await fetch("/api/shopee/matcher/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: selectedPostId, topN: 3 }),
+        body: JSON.stringify(bodyPayload),
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -770,13 +874,18 @@ function ShopeeDealsContent() {
 
   const handleCreateDraftPlan = async (matchItem: any) => {
     if (!matcherResults?.replyPreview?.text) return;
+    const targetPostId = selectedPostId || matcherResults.post?.id || "custom";
+    if (targetPostId === "custom") {
+      alert("Draft plan can only be associated with a live Threads post. Please select a published post from the dropdown or publish this draft first.");
+      return;
+    }
     try {
       setCreatingDraftPlan(true);
       const res = await fetch("/api/shopee/matcher/create-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId: selectedPostId,
+          postId: targetPostId,
           replyText: matcherResults.replyPreview.text,
           directAffiliateUrl: matchItem.product.affiliateUrl,
         }),
@@ -1374,7 +1483,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                     <div>
                       <span className="text-slate-500 text-[10px]">Commission:</span>
                       <div className="font-semibold text-emerald-700">
-                        {item.offer?.commissionRate ? `${(parseFloat(item.offer.commissionRate) * 100).toFixed(1)}%` : "—"}
+                        {formatCommissionRate(item.offer?.commissionRate)}
                       </div>
                     </div>
                     <div>
@@ -1384,6 +1493,43 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                       </div>
                     </div>
                   </div>
+
+                  {/* Pre-computed Deal & Price Info */}
+                  <div className="grid grid-cols-2 gap-2 text-xs bg-orange-50/60 p-2 rounded-lg border border-orange-100">
+                    <div>
+                      <span className="text-slate-500 text-[10px]">Giá niêm yết:</span>
+                      <div className="font-medium text-slate-700">
+                        {item.dealCalculation?.basePrice
+                          ? formatVnd(item.dealCalculation.basePrice)
+                          : item.offer?.sourceMetadataJson
+                          ? (() => {
+                              try {
+                                const m = JSON.parse(item.offer!.sourceMetadataJson!);
+                                return m.price ? formatVnd(m.price) : "—";
+                              } catch {
+                                return "—";
+                              }
+                            })()
+                          : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px]">Giá sau ưu đãi:</span>
+                      <div className="font-bold text-orange-600">
+                        {item.estimatedFinalPrice
+                          ? formatVnd(item.estimatedFinalPrice)
+                          : item.dealCalculation?.estimatedFinalPrice
+                          ? formatVnd(item.dealCalculation.estimatedFinalPrice)
+                          : "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {item.dealCalculation?.evidence?.voucherCode && (
+                    <div className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                      🎟️ Voucher: {item.dealCalculation.evidence.voucherCode}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between pt-1 text-xs">
                     <span className="text-[10px] text-slate-400 font-mono truncate max-w-[150px]">
@@ -1448,7 +1594,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                     <td className="p-3 font-medium text-slate-900 max-w-xs truncate">{p.title}</td>
                     <td className="p-3 text-slate-600">{p.category || "—"}</td>
                     <td className="p-3 font-semibold text-emerald-700">
-                      {p.latestOffer?.commissionRate ? `${(parseFloat(p.latestOffer.commissionRate) * 100).toFixed(1)}%` : "—"}
+                      {formatCommissionRate(p.latestOffer?.commissionRate)}
                     </td>
                     <td className="p-3 text-slate-700">{p.latestOffer?.soldCount ? p.latestOffer.soldCount.toLocaleString() : "—"}</td>
                     <td className="p-3 font-mono text-[11px] text-orange-600 truncate max-w-xs">
@@ -1492,7 +1638,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                 <select
                   required
                   value={calcProductId}
-                  onChange={(e) => setCalcProductId(e.target.value)}
+                  onChange={(e) => handleSelectCalcProduct(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none"
                 >
                   <option value="">-- Choose Product --</option>
@@ -1746,31 +1892,104 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">Product Matcher Playground</h3>
                 <p className="text-[11px] text-slate-500">
-                  Select a live Threads post and match it with the highest scoring candidates from the Weekly Pool
+                  Nhập nội dung bài viết Threads bất kỳ hoặc chọn bài viết đã đăng để so khớp với Top deal trong Weekly Pool
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <select
-                value={selectedPostId}
-                onChange={(e) => setSelectedPostId(e.target.value)}
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none"
+            {/* Mode Switcher Pills */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+              <button
+                type="button"
+                onClick={() => setMatcherMode("CUSTOM")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                  matcherMode === "CUSTOM"
+                    ? "bg-orange-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
               >
-                {publishedPosts.map((post) => (
-                  <option key={post.id} value={post.id}>
-                    @{post.account?.username}: &ldquo;{post.text?.substring(0, 60)}...&rdquo;
-                  </option>
-                ))}
-              </select>
+                <Edit3 className="w-3.5 h-3.5" /> Nhập text tùy ý / Custom Text
+              </button>
+              <button
+                type="button"
+                onClick={() => setMatcherMode("SELECT")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                  matcherMode === "SELECT"
+                    ? "bg-orange-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" /> Chọn từ bài viết Threads đã đăng
+              </button>
+            </div>
 
+            {/* Selector dropdown if in SELECT mode */}
+            {matcherMode === "SELECT" && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-700 block">Chọn bài viết Threads mục tiêu:</label>
+                <select
+                  value={selectedPostId}
+                  onChange={(e) => {
+                    const pid = e.target.value;
+                    setSelectedPostId(pid);
+                    const found = publishedPosts.find((p) => p.id === pid);
+                    if (found?.text) setCustomMatcherText(found.text);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none"
+                >
+                  <option value="">-- Chọn bài viết đã đăng --</option>
+                  {publishedPosts.map((post) => (
+                    <option key={post.id} value={post.id}>
+                      @{post.account?.username}: &ldquo;{post.text?.substring(0, 75)}...&rdquo;
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Custom / Editable Textarea */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-700">
+                  {matcherMode === "CUSTOM" ? "Nội dung bài viết Threads cần match deal:" : "Nội dung bài viết (có thể sửa trước khi match):"}
+                </label>
+                {matcherMode === "CUSTOM" && publishedPosts.length > 0 && (
+                  <select
+                    value={selectedPostId}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      setSelectedPostId(pid);
+                      const found = publishedPosts.find((p) => p.id === pid);
+                      if (found?.text) setCustomMatcherText(found.text);
+                    }}
+                    className="text-[11px] px-2 py-1 border border-slate-200 rounded-md text-slate-600 bg-slate-50 focus:outline-none max-w-xs truncate"
+                  >
+                    <option value="">(Tùy chọn: Chèn nội dung từ bài có sẵn)</option>
+                    {publishedPosts.map((post) => (
+                      <option key={post.id} value={post.id}>
+                        @{post.account?.username}: {post.text?.substring(0, 40)}...
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <textarea
+                rows={3}
+                value={customMatcherText}
+                onChange={(e) => setCustomMatcherText(e.target.value)}
+                placeholder="Ví dụ: 'Mọi người có ai biết mẫu tai nghe bluetooth chống ồn giá sinh viên học bài không?' hoặc dán bất kỳ bài post nào..."
+                className="w-full p-3 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-orange-500 font-sans leading-relaxed"
+              />
+            </div>
+
+            <div className="flex justify-end pt-1">
               <button
                 onClick={handleRunMatcher}
-                disabled={runningMatcher}
-                className="inline-flex items-center gap-2 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors shadow-xs disabled:opacity-50"
+                disabled={runningMatcher || (!customMatcherText.trim() && !selectedPostId)}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors shadow-xs disabled:opacity-50"
               >
                 <Sparkles className={`w-4 h-4 ${runningMatcher ? "animate-spin" : ""}`} />
-                {runningMatcher ? "Matching..." : "Run Matcher"}
+                {runningMatcher ? "Đang so khớp deal..." : "Run Matcher"}
               </button>
             </div>
           </div>

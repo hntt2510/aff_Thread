@@ -14,22 +14,32 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const postId = body.postId;
+    const customText = body.customText || body.text;
     const week = body.week || getCurrentIsoWeek();
     const topN = body.topN ? parseInt(body.topN, 10) : 3;
 
-    if (!postId) {
-      return NextResponse.json({ success: false, error: "Missing postId" }, { status: 400 });
+    if (!postId && !customText) {
+      return NextResponse.json({ success: false, error: "Missing postId or customText" }, { status: 400 });
     }
 
-    // 1. Fetch target post
-    const [targetPost] = await db
-      .select()
-      .from(posts)
-      .where(eq(posts.id, postId))
-      .limit(1);
+    let targetText = "";
+    let targetPost: any = null;
 
-    if (!targetPost) {
-      return NextResponse.json({ success: false, error: "Post not found" }, { status: 404 });
+    if (postId && postId !== "custom") {
+      const [foundPost] = await db
+        .select()
+        .from(posts)
+        .where(eq(posts.id, postId))
+        .limit(1);
+      targetPost = foundPost;
+    }
+
+    if (customText && typeof customText === "string" && customText.trim()) {
+      targetText = customText.trim();
+    } else if (targetPost?.text) {
+      targetText = targetPost.text;
+    } else {
+      return NextResponse.json({ success: false, error: "No post text available for matching" }, { status: 400 });
     }
 
     // 2. Fetch candidates from weekly pool
@@ -128,7 +138,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Run Product Matcher
-    const rankedMatches = productMatcherService.rankCandidates(targetPost.text || "", candidates, {
+    const rankedMatches = productMatcherService.rankCandidates(targetText, candidates, {
       topN,
       weights: body.weights,
     });
@@ -158,11 +168,17 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      post: {
-        id: targetPost.id,
-        text: targetPost.text,
-        status: targetPost.status,
-      },
+      post: targetPost
+        ? {
+            id: targetPost.id,
+            text: targetText,
+            status: targetPost.status,
+          }
+        : {
+            id: "custom",
+            text: targetText,
+            status: "CUSTOM",
+          },
       rankedMatches,
       replyPreview,
     });

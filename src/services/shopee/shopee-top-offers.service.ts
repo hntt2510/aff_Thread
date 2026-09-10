@@ -8,6 +8,9 @@ import { eq, desc, asc, and, ilike, gte, lte, sql } from "drizzle-orm";
 import { normalizeVietnameseText } from "./relevance-evaluator.service";
 import { getCurrentIsoWeek, evaluateDynamicRatingEligibility } from "./weekly-pool.service";
 
+import { extractAndCalculateShopeeDeal } from "./automated-deal-pipeline";
+import { FinalPriceCalculationResult } from "./final-price-calculator";
+
 export interface RawShopeeProductItem {
   item_id?: string | number;
   itemid?: string | number;
@@ -140,6 +143,9 @@ export interface MappedShopeeOffer {
   stock?: number;
   voucherCode?: string | null;
   voucherInfo?: any;
+  dealCalculation?: FinalPriceCalculationResult;
+  estimatedFinalPrice?: number;
+  dealOpportunityScore?: number;
 }
 
 export interface TopOffersFilter {
@@ -546,6 +552,15 @@ export class ShopeeTopOffersService {
       rawVoucherInfo?.voucherCode ||
       null;
 
+    const dealFacts = extractAndCalculateShopeeDeal({
+      price,
+      priceBeforeDiscount: originalPrice,
+      discount,
+      voucherInfo: rawVoucherInfo,
+      voucherCode,
+      commissionRate: rate,
+    });
+
     return {
       itemId,
       title,
@@ -565,6 +580,9 @@ export class ShopeeTopOffersService {
       stock,
       voucherCode,
       voucherInfo: rawVoucherInfo,
+      dealCalculation: dealFacts.calculation,
+      estimatedFinalPrice: dealFacts.estimatedFinalPrice,
+      dealOpportunityScore: dealFacts.dealOpportunityScore,
     };
   }
 
@@ -728,6 +746,11 @@ export class ShopeeTopOffersService {
 
       let offerId: string;
       const commissionAmount = Math.round(offer.price * (offer.rate / 100));
+
+      const dealCalculation = offer.dealCalculation;
+      const estimatedFinalPrice = offer.estimatedFinalPrice ?? offer.price;
+      const dealOpportunityScore = offer.dealOpportunityScore ?? 50;
+
       const sourceMetadata = JSON.stringify({
         shopName: offer.shopName,
         rating: offer.rating,
@@ -742,6 +765,9 @@ export class ShopeeTopOffersService {
         stock: offer.stock,
         voucherCode: offer.voucherCode,
         voucherInfo: offer.voucherInfo,
+        calculation: dealCalculation,
+        estimatedFinalPrice,
+        dealOpportunityScore,
       });
 
       // Crucial: prioritize s.shopee.vn over long universal links
@@ -801,9 +827,24 @@ export class ShopeeTopOffersService {
           currency: "VND",
           directDiscountPercent: offer.discount || null,
           directDiscountAmount: Math.max(0, offer.originalPrice - offer.price),
+          voucherCode: offer.voucherCode || dealCalculation?.evidence?.voucherCode || null,
+          voucherDiscountType: dealCalculation?.evidence?.voucherDiscountType || null,
+          voucherDiscountPercent: dealCalculation?.evidence?.voucherDiscountPercent
+            ? String(dealCalculation.evidence.voucherDiscountPercent)
+            : null,
+          voucherDiscountAmount: dealCalculation?.evidence?.voucherDiscountAmount || null,
+          voucherMaxDiscount: dealCalculation?.evidence?.voucherMaxDiscount || null,
+          voucherMinSpend: dealCalculation?.evidence?.voucherMinSpend || null,
+          voucherValidFrom: dealCalculation?.evidence?.voucherValidFrom || null,
+          voucherValidUntil: dealCalculation?.evidence?.voucherValidUntil || null,
           source: "SHOPEE_OFFER_API",
           confidence: "1.00",
-          rawMetadataJson: sourceMetadata,
+          rawMetadataJson: JSON.stringify({
+            calculation: dealCalculation,
+            estimatedFinalPrice,
+            dealOpportunity: { score: dealOpportunityScore },
+            shopName: offer.shopName,
+          }),
         });
         createdObservations++;
       }

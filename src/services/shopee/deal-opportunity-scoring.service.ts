@@ -159,10 +159,18 @@ export class DealOpportunityScoringService {
       extraPerksScore += 8;
     }
 
-    if (input.commissionRate && input.commissionRate >= 0.10) {
-      signalsUsed.highCommission = `${(input.commissionRate * 100).toFixed(1)}%`;
+    const rawComm = input.commissionRate;
+    const commRate =
+      rawComm !== null && rawComm !== undefined
+        ? rawComm > 1.0
+          ? rawComm / 100
+          : rawComm
+        : null;
+
+    if (commRate && commRate >= 0.10) {
+      signalsUsed.highCommission = `${(commRate * 100).toFixed(1)}%`;
       extraPerksScore += 7;
-    } else if (input.commissionRate && input.commissionRate >= 0.05) {
+    } else if (commRate && commRate >= 0.05) {
       extraPerksScore += 4;
     }
 
