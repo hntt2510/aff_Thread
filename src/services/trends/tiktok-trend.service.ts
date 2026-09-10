@@ -44,6 +44,12 @@ export interface SearchTrendOptions {
   endpoint?: string;
 }
 
+import {
+  tikWApiService,
+  TikWApiService,
+  ViralVideoItem,
+} from "./tikw-api.service";
+
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
@@ -51,22 +57,41 @@ export class TiktokTrendService {
   readonly version = "v1.0.0-trend-discovery";
   private readonly feedListEndpoint = "https://www.tikwm.com/api/feed/list";
   private readonly feedSearchEndpoint = "https://www.tikwm.com/api/feed/search/";
+  private tikwApi: TikWApiService;
+
+  constructor(tikwApi: TikWApiService = tikWApiService) {
+    this.tikwApi = tikwApi;
+  }
 
   /**
    * Fetches trending videos for a specified region (default: "VN").
+   * Prioritizes official TikW-API if TIKW_API_KEY is configured.
    */
   async fetchTrendingVideos(options?: FetchTrendOptions): Promise<ViralContentCandidate[]> {
     const region = options?.region || "VN";
     const count = options?.count || 20;
     const minViews = options?.minViews ?? 50000;
     const minLikes = options?.minLikes ?? 2000;
-    const endpoint = options?.endpoint || this.feedListEndpoint;
+    const endpoint = options?.endpoint;
+
+    // Use official TikW-API if API key is present and no custom endpoint override was specified
+    if (!endpoint && this.tikwApi?.getApiKey()) {
+      try {
+        const items = await this.tikwApi.fetchTrendingVideos(region, count);
+        const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
+        return this.rankAndFilterCandidates(candidates, minViews, minLikes);
+      } catch (err) {
+        console.warn("TikW-API trending fetch failed, falling back to public endpoint:", err);
+      }
+    }
+
+    const publicEndpoint = endpoint || this.feedListEndpoint;
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(endpoint, {
+      const res = await fetch(publicEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -101,6 +126,7 @@ export class TiktokTrendService {
 
   /**
    * Searches viral videos matching a query keyword.
+   * Prioritizes official TikW-API if TIKW_API_KEY is configured.
    */
   async searchViralVideos(options: SearchTrendOptions): Promise<ViralContentCandidate[]> {
     const { query } = options;
@@ -112,13 +138,26 @@ export class TiktokTrendService {
     const region = options.region || "VN";
     const minViews = options.minViews ?? 50000;
     const minLikes = options.minLikes ?? 2000;
-    const endpoint = options.endpoint || this.feedSearchEndpoint;
+    const endpoint = options.endpoint;
+
+    // Use official TikW-API if API key is present and no custom endpoint override was specified
+    if (!endpoint && this.tikwApi?.getApiKey()) {
+      try {
+        const items = await this.tikwApi.searchViralVideos(query.trim(), count);
+        const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
+        return this.rankAndFilterCandidates(candidates, minViews, minLikes);
+      } catch (err) {
+        console.warn("TikW-API search failed, falling back to public endpoint:", err);
+      }
+    }
+
+    const publicEndpoint = endpoint || this.feedSearchEndpoint;
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(endpoint, {
+      const res = await fetch(publicEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -211,12 +250,56 @@ export class TiktokTrendService {
       });
     }
 
+    return this.rankAndFilterCandidates(candidates, options.minViews, options.minLikes);
+  }
+
+  /**
+   * Converts a normalized ViralVideoItem from TikW-API into a ViralContentCandidate.
+   */
+  mapViralVideoItemToCandidate(item: ViralVideoItem, region = "VN"): ViralContentCandidate {
+    const engagementScore = item.likes + item.comments * 2 + item.shares * 3;
+    const suggestedThreadsCaption = this.rewriteCaptionForThreads(item.title, {
+      author: item.authorName,
+    });
+
+    return {
+      id: item.id,
+      title: item.title,
+      videoUrl: item.videoUrl,
+      coverUrl: item.coverUrl,
+      stats: {
+        views: item.views,
+        likes: item.likes,
+        shares: item.shares,
+        comments: item.comments,
+      },
+      author: {
+        uniqueId: item.authorUsername,
+        nickname: item.authorName,
+        avatar: item.authorAvatar,
+      },
+      duration: item.duration ?? 0,
+      region,
+      createdAt: item.createdAt ?? Date.now(),
+      engagementScore,
+      suggestedThreadsCaption,
+    };
+  }
+
+  /**
+   * Filters candidates by minimal engagement thresholds and sorts descending by engagement score.
+   */
+  rankAndFilterCandidates(
+    candidates: ViralContentCandidate[],
+    minViews: number,
+    minLikes: number
+  ): ViralContentCandidate[] {
     // Filter by minimal engagement: views >= minViews OR likes >= minLikes
     const filtered = candidates.filter(
-      (c) => c.stats.views >= options.minViews || c.stats.likes >= options.minLikes
+      (c) => c.stats.views >= minViews || c.stats.likes >= minLikes
     );
 
-    // If filtering eliminates all items (e.g. narrow search), fallback to top candidates sorted by views
+    // If filtering eliminates all items (e.g. narrow search), fallback to top candidates
     const results = filtered.length > 0 ? filtered : candidates;
 
     // Sort descending by engagement score

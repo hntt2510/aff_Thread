@@ -41,6 +41,10 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  TIKW_API_KEY: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
 });
 
 let cachedEnv: z.infer<typeof envSchema> | null = null;
