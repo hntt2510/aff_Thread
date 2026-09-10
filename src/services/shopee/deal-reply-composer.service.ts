@@ -32,6 +32,35 @@ export interface ComposedDealReplyResult {
   generatedAt: Date;
 }
 
+/**
+ * Sanitizes Shopee affiliate URL:
+ * - Always preserves clean short link (s.shopee.vn) verbatim.
+ * - If passed an ugly universal link with massive tracking queries, extracts clean product URL.
+ */
+export function sanitizeShopeeAffiliateUrl(url: string): string {
+  if (!url) return "";
+  const trimmed = url.trim();
+  // 1. If it's already a short link, keep it exactly as-is
+  if (trimmed.includes("s.shopee.vn")) {
+    return trimmed;
+  }
+  // 2. If it's a long universal tracking link, clean it to avoid noisy bot output
+  if (trimmed.includes("/universal-link/")) {
+    const match = trimmed.match(/\/product\/(\d+)\/(\d+)/);
+    if (match) {
+      return `https://shopee.vn/product/${match[1]}/${match[2]}`;
+    }
+    const [baseUrl] = trimmed.split("?");
+    return baseUrl.replace("/universal-link", "");
+  }
+  // 3. If standard shopee URL has very long tracking params, clean it
+  if (trimmed.includes("shopee.vn") && trimmed.includes("?") && trimmed.length > 120) {
+    const [baseUrl] = trimmed.split("?");
+    return baseUrl;
+  }
+  return trimmed;
+}
+
 export class DealReplyComposerService {
   readonly version = "v1.0.0-template";
 
@@ -74,7 +103,8 @@ export class DealReplyComposerService {
 
     // Product blocks
     for (const item of products) {
-      const { title, directAffiliateUrl, calculation } = item;
+      const { title, calculation } = item;
+      const directAffiliateUrl = sanitizeShopeeAffiliateUrl(item.directAffiliateUrl);
       directUrls.push(directAffiliateUrl);
 
       const basePriceFormatted = formatVnd(calculation.basePrice);

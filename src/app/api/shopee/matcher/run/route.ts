@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { posts, affiliateProducts, affiliateProductOffers, productDealObservations } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { productMatcherService, MatcherCandidateItem } from "@/services/shopee/product-matcher.service";
 import { weeklyPoolService, getCurrentIsoWeek } from "@/services/shopee/weekly-pool.service";
 import { dealReplyComposerService } from "@/services/shopee/deal-reply-composer.service";
@@ -64,12 +64,19 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Prioritize s.shopee.vn short link
+        const affUrl =
+          (item.offer?.affiliateUrl?.includes("s.shopee.vn") ? item.offer.affiliateUrl : null) ||
+          (item.product.productUrl?.includes("s.shopee.vn") ? item.product.productUrl : null) ||
+          item.offer?.affiliateUrl ||
+          item.product.productUrl;
+
         candidates.push({
           id: item.product.id,
           title: item.product.title,
           category: item.product.category,
           productUrl: item.product.productUrl,
-          affiliateUrl: item.offer?.affiliateUrl || item.product.productUrl,
+          affiliateUrl: affUrl,
           imageUrl: item.product.imageUrl,
           catalogScore: item.poolItem.catalogScore,
           dealOpportunityScore,
@@ -77,23 +84,47 @@ export async function POST(req: NextRequest) {
         });
       }
     } else {
-      // Fallback: fetch directly from active products
-      const activeProds = await db
-        .select()
+      // Fallback: fetch directly from active products with offers
+      const activeProdsWithOffers = await db
+        .select({
+          product: affiliateProducts,
+          offer: affiliateProductOffers,
+        })
         .from(affiliateProducts)
+        .leftJoin(
+          affiliateProductOffers,
+          and(
+            eq(affiliateProductOffers.productId, affiliateProducts.id),
+            eq(affiliateProductOffers.isActive, true)
+          )
+        )
         .where(eq(affiliateProducts.isActive, true))
-        .limit(20);
+        .orderBy(desc(affiliateProducts.updatedAt))
+        .limit(30);
 
-      candidates = activeProds.map((p) => ({
-        id: p.id,
-        title: p.title,
-        category: p.category,
-        productUrl: p.productUrl,
-        affiliateUrl: p.productUrl,
-        imageUrl: p.imageUrl,
-        catalogScore: 60,
-        dealOpportunityScore: 50,
-      }));
+      const seen = new Set<string>();
+      candidates = [];
+      for (const row of activeProdsWithOffers) {
+        if (seen.has(row.product.id)) continue;
+        seen.add(row.product.id);
+
+        const affUrl =
+          (row.offer?.affiliateUrl?.includes("s.shopee.vn") ? row.offer.affiliateUrl : null) ||
+          (row.product.productUrl?.includes("s.shopee.vn") ? row.product.productUrl : null) ||
+          row.offer?.affiliateUrl ||
+          row.product.productUrl;
+
+        candidates.push({
+          id: row.product.id,
+          title: row.product.title,
+          category: row.product.category,
+          productUrl: row.product.productUrl,
+          affiliateUrl: affUrl,
+          imageUrl: row.product.imageUrl,
+          catalogScore: 60,
+          dealOpportunityScore: 50,
+        });
+      }
     }
 
     // 3. Run Product Matcher

@@ -220,4 +220,114 @@ describe("ShopeeTopOffersService Data Transformation", () => {
       expect(offer.shopName).toBe("Coolmate Official");
     });
   });
+
+  describe("Shopee Affiliate CSV Batch Import", () => {
+    it("parses Vietnamese price formats into VND integers", () => {
+      expect(shopeeTopOffersService.parseShopeePrice("74,0k")).toBe(74000);
+      expect(shopeeTopOffersService.parseShopeePrice("74.5k")).toBe(74500);
+      expect(shopeeTopOffersService.parseShopeePrice("74k")).toBe(74000);
+      expect(shopeeTopOffersService.parseShopeePrice("106.820đ")).toBe(106820);
+      expect(shopeeTopOffersService.parseShopeePrice("106,820")).toBe(106820);
+      expect(shopeeTopOffersService.parseShopeePrice("125000")).toBe(125000);
+      expect(shopeeTopOffersService.parseShopeePrice("1,2tr")).toBe(1200000);
+      expect(shopeeTopOffersService.parseShopeePrice("1tr")).toBe(1000000);
+      expect(shopeeTopOffersService.parseShopeePrice("74.000 - 99.000")).toBe(74000);
+      expect(shopeeTopOffersService.parseShopeePrice(9520000000)).toBe(95200);
+    });
+
+    it("parses historical sold count formats accurately", () => {
+      expect(shopeeTopOffersService.parseSoldCount("51")).toBe(51);
+      expect(shopeeTopOffersService.parseSoldCount("1,2k")).toBe(1200);
+      expect(shopeeTopOffersService.parseSoldCount("1.2k")).toBe(1200);
+      expect(shopeeTopOffersService.parseSoldCount("50k+")).toBe(50000);
+      expect(shopeeTopOffersService.parseSoldCount("1tr+")).toBe(1000000);
+      expect(shopeeTopOffersService.parseSoldCount("28")).toBe(28);
+    });
+
+    it("parses raw Shopee Batch CSV into MappedShopeeOffers and prioritizes Offer Link (s.shopee.vn)", () => {
+      const csvContent = `Item Id,Item Name,Price,Sales,Shop Name,Commission Rate,Product Link,Offer Link
+55913200112,"Khăn giấy rút Top Gia Thùng 6 bịch",74,0k,51,Home Plus Store,12,5%,https://shopee.vn/product/344837665/55913200112,https://s.shopee.vn/8plfXi1bbd
+57458114650,"Nước giặt xả sinh học",120.000đ,1.2k,Eco Home,15%,https://shopee.vn/product/123/57458114650,https://s.shopee.vn/9zKlw90asd`;
+
+      const parsed = shopeeTopOffersService.parseShopeeBatchCsv(csvContent);
+
+      expect(parsed.length).toBe(2);
+
+      // First item
+      expect(parsed[0].itemId).toBe("55913200112");
+      expect(parsed[0].title).toBe("Khăn giấy rút Top Gia Thùng 6 bịch");
+      expect(parsed[0].price).toBe(74000); // 74,0k parsed to 74000
+      expect(parsed[0].soldCount).toBe(51);
+      expect(parsed[0].shopName).toBe("Home Plus Store");
+      expect(parsed[0].rate).toBe(12.5); // "12,5%" parsed to 12.5
+      // Crucial: Must use Offer Link (s.shopee.vn)
+      expect(parsed[0].affUrl).toBe("https://s.shopee.vn/8plfXi1bbd");
+
+      // Second item
+      expect(parsed[1].itemId).toBe("57458114650");
+      expect(parsed[1].price).toBe(120000);
+      expect(parsed[1].soldCount).toBe(1200);
+      expect(parsed[1].rate).toBe(15);
+      expect(parsed[1].affUrl).toBe("https://s.shopee.vn/9zKlw90asd");
+    });
+
+    it("falls back to Product Link if Offer Link is not provided in CSV", () => {
+      const csvContent = `Item Id,Item Name,Price,Sales,Shop Name,Commission Rate,Product Link,Offer Link
+12345,"Sản phẩm A",50k,10,Shop X,10%,https://shopee.vn/product/1/12345,`;
+
+      const parsed = shopeeTopOffersService.parseShopeeBatchCsv(csvContent);
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].affUrl).toBe("https://shopee.vn/product/1/12345");
+    });
+  });
+
+  describe("Deal Reply Composer and Link Sanitization", () => {
+    it("preserves short links verbatim and strips tracking queries from universal links", async () => {
+      const { sanitizeShopeeAffiliateUrl } = await import(
+        "@/services/shopee/deal-reply-composer.service"
+      );
+
+      // Short link preserved
+      expect(sanitizeShopeeAffiliateUrl("https://s.shopee.vn/8plfXi1bbd")).toBe(
+        "https://s.shopee.vn/8plfXi1bbd"
+      );
+
+      // Universal link sanitized to clean product link
+      const longUniversal =
+        "https://shopee.vn/universal-link/product/344837665/57458114650?gads_t_sig=abcdef123456&utm_campaign=test";
+      expect(sanitizeShopeeAffiliateUrl(longUniversal)).toBe(
+        "https://shopee.vn/product/344837665/57458114650"
+      );
+    });
+
+    it("composes deal reply using clean short link s.shopee.vn", async () => {
+      const { dealReplyComposerService } = await import(
+        "@/services/shopee/deal-reply-composer.service"
+      );
+
+      const reply = dealReplyComposerService.composeReply([
+        {
+          title: "Khăn giấy rút Top Gia Thùng 6 bịch",
+          directAffiliateUrl: "https://s.shopee.vn/8plfXi1bbd",
+          calculation: {
+            basePrice: 95200,
+            voucherDiscount: 0,
+            estimatedFinalPrice: 95200,
+            savingsAmount: 0,
+            dealState: "ACTIVE",
+            applicable: "NO",
+            confidence: 1.0,
+            discountAmount: 0,
+            evidence: {
+              observedPrice: 95200,
+            },
+          } as any,
+        },
+      ]);
+
+      expect(reply.text).toContain("https://s.shopee.vn/8plfXi1bbd");
+      expect(reply.text).not.toContain("universal-link");
+      expect(reply.directUrlsUsed).toEqual(["https://s.shopee.vn/8plfXi1bbd"]);
+    });
+  });
 });

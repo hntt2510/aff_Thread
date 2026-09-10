@@ -140,6 +140,235 @@ export interface TopOffersFilter {
   limit?: number;
 }
 
+/**
+ * Parses Vietnamese shorthand and formatted prices into VND integer.
+ * Examples:
+ * - "74,0k" -> 74000
+ * - "74.5k" -> 74500
+ * - "74k" -> 74000
+ * - "106.820đ" / "106,820" / "106.820" -> 106820
+ * - "125000" -> 125000
+ * - "1,2tr" / "1.2tr" / "1tr" -> 1200000 / 1000000
+ * - "74.000 - 99.000" -> 74000
+ * - 9520000000 (micro-units) -> 95200
+ */
+export function parseShopeePrice(priceRaw: string | number | undefined | null): number {
+  if (priceRaw === undefined || priceRaw === null) return 0;
+  if (typeof priceRaw === "number") {
+    if (priceRaw >= 10000000) return Math.round(priceRaw / 100000);
+    return Math.round(priceRaw);
+  }
+  let s = String(priceRaw).trim().toLowerCase();
+  if (!s) return 0;
+
+  // Handle range like "74.000 - 99.000", pick first price
+  if (s.includes("-")) {
+    s = s.split("-")[0].trim();
+  }
+
+  // Suffix "k" (e.g. "74,0k", "74.5k", "74k")
+  if (s.includes("k")) {
+    const numStr = s.replace("k", "").replace("đ", "").replace(/\s/g, "").replace(",", ".");
+    const val = parseFloat(numStr);
+    return isNaN(val) ? 0 : Math.round(val * 1000);
+  }
+
+  // Suffix "tr" or "m" (e.g. "1,2tr", "1.5tr", "1tr")
+  if (s.includes("tr") || s.includes("m")) {
+    const numStr = s.replace("tr", "").replace("m", "").replace("đ", "").replace(/\s/g, "").replace(",", ".");
+    const val = parseFloat(numStr);
+    return isNaN(val) ? 0 : Math.round(val * 1000000);
+  }
+
+  // Remove currency symbol and whitespace
+  s = s.replace(/[đvnd\s]/g, "");
+
+  // If number contains dots or commas (e.g. "106.820" or "106,820")
+  const digitsOnly = s.replace(/[^0-9]/g, "");
+  const num = parseInt(digitsOnly, 10);
+  if (isNaN(num)) return 0;
+  if (num >= 10000000) return Math.round(num / 100000);
+  return num;
+}
+
+/**
+ * Parses historical sold count string/number into numeric integer.
+ * Examples: "51", "1,2k", "1.2k", "50k+", "1tr+", "28"
+ */
+export function parseShopeeSoldCount(soldText: string | number | undefined | null): number {
+  if (soldText === undefined || soldText === null) return 0;
+  if (typeof soldText === "number") return Math.max(0, Math.round(soldText));
+
+  const clean = String(soldText).toLowerCase().replace(/\s+/g, "").replace("+", "");
+  if (!clean) return 0;
+
+  if (clean.includes("tr") || clean.includes("m")) {
+    const num = parseFloat(clean.replace("tr", "").replace("m", "").replace(",", "."));
+    return isNaN(num) ? 0 : Math.round(num * 1000000);
+  }
+  if (clean.includes("k")) {
+    const num = parseFloat(clean.replace("k", "").replace(",", "."));
+    return isNaN(num) ? 0 : Math.round(num * 1000);
+  }
+  const num = parseInt(clean.replace(/[^0-9]/g, ""), 10);
+  return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Tokenizes raw CSV text into a 2D array of strings, handling quotes, newlines, and commas.
+ */
+export function parseCsvRows(csvContent: string): string[][] {
+  if (!csvContent) return [];
+  const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const result: string[][] = [];
+
+  for (const line of lines) {
+    const row: string[] = [];
+    let inQuote = false;
+    let currentToken = "";
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuote = !inQuote;
+      } else if (char === "," && !inQuote) {
+        row.push(currentToken.trim());
+        currentToken = "";
+      } else {
+        currentToken += char;
+      }
+    }
+    row.push(currentToken.trim());
+    result.push(row);
+  }
+
+  return result;
+}
+
+/**
+ * Parses CSV export from Shopee Affiliate Batch Product Links.
+ * Supports columns:
+ * - 'Item Id': mã sản phẩm
+ * - 'Item Name': tên sản phẩm
+ * - 'Price': giá (VD: "74,0k" -> 74000)
+ * - 'Sales': lượt bán (VD: "1.2k" -> 1200)
+ * - 'Shop Name': tên shop
+ * - 'Commission Rate': tỷ lệ hoa hồng (VD: "12,5%" -> 12.5)
+ * - 'Product Link': link gốc sản phẩm
+ * - 'Offer Link': link tiếp thị rút gọn chuẩn (VD: https://s.shopee.vn/8plfXi1bbd)
+ */
+export function parseShopeeBatchCsv(csvContent: string): MappedShopeeOffer[] {
+  if (!csvContent || typeof csvContent !== "string") return [];
+
+  const rows = parseCsvRows(csvContent.trim());
+  if (rows.length < 2) return [];
+
+  const normalizeHeader = (h: string) =>
+    h
+      .toLowerCase()
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\s_-]+/g, "");
+
+  const headers = rows[0].map(normalizeHeader);
+
+  const getColIndex = (keys: string[]) => {
+    return headers.findIndex((h) => keys.some((k) => h === k || h.includes(k)));
+  };
+
+  const itemIdIdx = getColIndex(["itemid", "productid", "masanpham", "id"]);
+  const nameIdx = getColIndex(["itemname", "tensanpham", "productname", "title", "name"]);
+  const priceIdx = getColIndex(["price", "gia"]);
+  const salesIdx = getColIndex(["sales", "sold", "daban", "luotban"]);
+  const shopNameIdx = getColIndex(["shopname", "tenshop", "shop"]);
+  const rateIdx = getColIndex(["commissionrate", "hoahong", "commission", "rate", "tylehoahong"]);
+  const productLinkIdx = getColIndex(["productlink", "linkgoc", "producturl", "link"]);
+  const offerLinkIdx = getColIndex(["offerlink", "shortlink", "afflink", "linkaff", "linktiepthi", "linkuudai", "affiliateurl"]);
+
+  const offers: MappedShopeeOffer[] = [];
+
+  for (let r = 1; r < rows.length; r++) {
+    const rawRow = rows[r];
+    if (!rawRow || rawRow.length === 0 || rawRow.every((c) => !c.trim())) continue;
+
+    // Auto-heal unquoted numbers with comma if row was split by comma
+    // e.g. ["74", "0k"] -> "74,0k" or ["12", "5%"] -> "12,5%"
+    const row: string[] = [];
+    for (let i = 0; i < rawRow.length; i++) {
+      const cur = rawRow[i];
+      const next = rawRow[i + 1];
+      if (
+        next !== undefined &&
+        /^\d+$/.test(cur.trim()) &&
+        /^\d+(k|tr|m|%)?$/i.test(next.trim()) &&
+        (/[ktr%]/i.test(next.trim()) || (rawRow.length > headers.length && /^\d+$/.test(next.trim())))
+      ) {
+        row.push(`${cur.trim()},${next.trim()}`);
+        i++; // skip next
+      } else {
+        row.push(cur);
+      }
+    }
+
+    const rawItemId = itemIdIdx !== -1 && itemIdIdx < row.length ? row[itemIdIdx] : "";
+    const rawName = nameIdx !== -1 && nameIdx < row.length ? row[nameIdx] : "";
+    const rawPrice = priceIdx !== -1 && priceIdx < row.length ? row[priceIdx] : "";
+    const rawSales = salesIdx !== -1 && salesIdx < row.length ? row[salesIdx] : "";
+    const rawShop = shopNameIdx !== -1 && shopNameIdx < row.length ? row[shopNameIdx] : "";
+    const rawRate = rateIdx !== -1 && rateIdx < row.length ? row[rateIdx] : "";
+    const rawProductLink = productLinkIdx !== -1 && productLinkIdx < row.length ? row[productLinkIdx] : "";
+    const rawOfferLink = offerLinkIdx !== -1 && offerLinkIdx < row.length ? row[offerLinkIdx] : "";
+
+    const itemId = String(rawItemId || "").replace(/["']/g, "").trim();
+    const title = String(rawName || "").replace(/^["']|["']$/g, "").trim();
+    const cleanProductLink = String(rawProductLink || "").trim();
+    const cleanOfferLink = String(rawOfferLink || "").trim();
+
+    if (!itemId && !title && !cleanProductLink && !cleanOfferLink) continue;
+
+    const price = parseShopeePrice(rawPrice);
+    const sold = String(rawSales || "0").trim();
+    const soldCount = parseShopeeSoldCount(sold);
+    const shopName = String(rawShop || "").replace(/^["']|["']$/g, "").trim();
+
+    const rateClean = String(rawRate || "0")
+      .replace("%", "")
+      .replace(",", ".")
+      .trim();
+    const rate = Math.round((parseFloat(rateClean) || 0) * 100) / 100;
+
+    // CRITICAL: Always prioritize clean Offer Link (s.shopee.vn)
+    const affUrl = cleanOfferLink || cleanProductLink;
+
+    let finalItemId = itemId;
+    if (!finalItemId) {
+      const match = (cleanProductLink || cleanOfferLink).match(/\/product\/\d+\/(\d+)/) || (cleanProductLink || cleanOfferLink).match(/\/(\d+)(?:\?|$)/);
+      if (match) {
+        finalItemId = match[1];
+      }
+    }
+
+    offers.push({
+      itemId: finalItemId || (title ? `csv_${r}` : ""),
+      title: title || (finalItemId ? `Sản phẩm #${finalItemId}` : "Sản phẩm Shopee"),
+      price,
+      originalPrice: price,
+      discount: "",
+      rate,
+      sellerRate: 0,
+      imageUrl: "",
+      affUrl,
+      sold,
+      soldCount,
+      rating: 5,
+      shopName,
+    });
+  }
+
+  return offers;
+}
+
 export class ShopeeTopOffersService {
   /**
    * Transforms a single raw Shopee REST API item into normalized MappedShopeeOffer
@@ -297,18 +526,19 @@ export class ShopeeTopOffersService {
     return extractProductList(rawInput);
   }
 
+  parseShopeeBatchCsv(csvContent: string): MappedShopeeOffer[] {
+    return parseShopeeBatchCsv(csvContent);
+  }
+
+  parseShopeePrice(priceRaw: string | number): number {
+    return parseShopeePrice(priceRaw);
+  }
+
   /**
-   * Parses historical sold text (e.g. "51", "1,2k", "10.5k") to numeric integer
+   * Parses historical sold text (e.g. "51", "1,2k", "10.5k", "50k+") to numeric integer
    */
-  private parseSoldCount(soldText: string): number {
-    if (!soldText) return 0;
-    const clean = soldText.toLowerCase().replace(/\s+/g, "");
-    if (clean.includes("k")) {
-      const num = parseFloat(clean.replace("k", "").replace(",", "."));
-      return isNaN(num) ? 0 : Math.round(num * 1000);
-    }
-    const num = parseInt(clean.replace(/[^0-9]/g, ""), 10);
-    return isNaN(num) ? 0 : num;
+  parseSoldCount(soldText: string | number): number {
+    return parseShopeeSoldCount(soldText);
   }
 
   /**
@@ -346,7 +576,11 @@ export class ShopeeTopOffersService {
 
       // 1. Upsert product
       const existingProducts = await db
-        .select({ id: affiliateProducts.id })
+        .select({
+          id: affiliateProducts.id,
+          imageUrl: affiliateProducts.imageUrl,
+          productUrl: affiliateProducts.productUrl,
+        })
         .from(affiliateProducts)
         .where(
           and(
@@ -360,14 +594,24 @@ export class ShopeeTopOffersService {
 
       if (existingProducts.length > 0) {
         productId = existingProducts[0].id;
+        const existingImg = existingProducts[0].imageUrl;
+        // Keep existing image if incoming offer has no image or empty imageUrl!
+        const finalImageUrl = offer.imageUrl?.trim() ? offer.imageUrl.trim() : (existingImg || undefined);
+
+        // Keep or prioritize short link (s.shopee.vn)
+        let finalProductUrl = offer.affUrl || existingProducts[0].productUrl;
+        if (existingProducts[0].productUrl?.includes("s.shopee.vn") && !offer.affUrl?.includes("s.shopee.vn")) {
+          finalProductUrl = existingProducts[0].productUrl;
+        }
+
         await db
           .update(affiliateProducts)
           .set({
             title: offer.title,
             normalizedTitle: normalized,
             category: offer.shopName || "Shopee Top Offer",
-            productUrl: offer.affUrl || undefined,
-            imageUrl: offer.imageUrl || undefined,
+            productUrl: finalProductUrl,
+            imageUrl: finalImageUrl,
             isActive: true,
             lastSeenAt: now,
             updatedAt: now,
@@ -383,8 +627,8 @@ export class ShopeeTopOffersService {
             title: offer.title,
             normalizedTitle: normalized,
             category: offer.shopName || "Shopee Top Offer",
-            productUrl: offer.affUrl,
-            imageUrl: offer.imageUrl,
+            productUrl: offer.affUrl || "https://shopee.vn",
+            imageUrl: offer.imageUrl || null,
             currency: "VND",
             isActive: true,
             firstSeenAt: now,
@@ -397,7 +641,10 @@ export class ShopeeTopOffersService {
 
       // 2. Insert or update offer for the captured week
       const existingOffers = await db
-        .select({ id: affiliateProductOffers.id })
+        .select({
+          id: affiliateProductOffers.id,
+          affiliateUrl: affiliateProductOffers.affiliateUrl,
+        })
         .from(affiliateProductOffers)
         .where(
           and(
@@ -419,16 +666,27 @@ export class ShopeeTopOffersService {
         soldText: offer.sold,
       });
 
+      // Crucial: prioritize s.shopee.vn over long universal links
+      let finalAffUrl = offer.affUrl;
+      if (existingOffers.length > 0) {
+        const existingUrl = existingOffers[0].affiliateUrl;
+        if (existingUrl.includes("s.shopee.vn") && !offer.affUrl.includes("s.shopee.vn")) {
+          finalAffUrl = existingUrl;
+        }
+      }
+
+      const offerSource = offer.affUrl.includes("s.shopee.vn") ? "SHOPEE_BATCH_CSV" : "SHOPEE_OFFER_API";
+
       if (existingOffers.length > 0) {
         offerId = existingOffers[0].id;
         await db
           .update(affiliateProductOffers)
           .set({
-            affiliateUrl: offer.affUrl,
+            affiliateUrl: finalAffUrl,
             commissionRate: `${offer.rate}%`,
             commissionAmount,
             soldCount: offer.soldCount,
-            source: "SHOPEE_OFFER_API",
+            source: offerSource,
             sourceMetadataJson: sourceMetadata,
             isActive: true,
             capturedAt: now,
@@ -441,11 +699,11 @@ export class ShopeeTopOffersService {
             productId,
             capturedWeek: currentWeek,
             capturedAt: now,
-            affiliateUrl: offer.affUrl,
+            affiliateUrl: finalAffUrl,
             commissionRate: `${offer.rate}%`,
             commissionAmount,
             soldCount: offer.soldCount,
-            source: "SHOPEE_OFFER_API",
+            source: offerSource,
             sourceMetadataJson: sourceMetadata,
             isActive: true,
           })

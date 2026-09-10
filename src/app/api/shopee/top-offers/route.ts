@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   shopeeTopOffersService,
   type RawShopeeProductItem,
+  type MappedShopeeOffer,
 } from "@/services/shopee/shopee-top-offers.service";
 
 export const dynamic = "force-dynamic";
@@ -53,38 +54,60 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const rawList: RawShopeeProductItem[] = shopeeTopOffersService.extractProductList(body);
+    let sortedOffers: MappedShopeeOffer[] = [];
+    let importType: "JSON" | "CSV" = "JSON";
 
-    if (rawList.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "No product items found. Please provide an array of items or response from /api/v3/offer/product/list",
-        },
-        { status: 400 }
-      );
+    // 1. Check if CSV payload
+    const csvContent = body.csvContent || body.csv;
+    if (typeof csvContent === "string" && csvContent.trim().length > 0) {
+      importType = "CSV";
+      const parsedCsvOffers = shopeeTopOffersService.parseShopeeBatchCsv(csvContent);
+      sortedOffers = parsedCsvOffers
+        .filter((offer) => offer.itemId && offer.title && offer.rate > 0)
+        .sort((a, b) => b.rate - a.rate);
+    } else if (typeof body.rawData === "string") {
+      const trimmed = body.rawData.trim();
+      // If it looks like CSV rather than JSON
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        const parsedCsvOffers = shopeeTopOffersService.parseShopeeBatchCsv(trimmed);
+        if (parsedCsvOffers.length > 0) {
+          importType = "CSV";
+          sortedOffers = parsedCsvOffers
+            .filter((offer) => offer.itemId && offer.title && offer.rate > 0)
+            .sort((a, b) => b.rate - a.rate);
+        }
+      }
     }
 
-    // 1. Transform, filter (rate > 0), sort by rate desc
-    const sortedOffers = shopeeTopOffersService.filterAndSortOffers(rawList);
+    // 2. If not CSV, process as JSON
+    if (sortedOffers.length === 0 && importType === "JSON") {
+      const rawList: RawShopeeProductItem[] = shopeeTopOffersService.extractProductList(body);
+      if (rawList.length > 0) {
+        sortedOffers = shopeeTopOffersService.filterAndSortOffers(rawList);
+      }
+    }
 
     if (sortedOffers.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "All provided items had 0% or missing commission rates.",
+          error:
+            importType === "CSV"
+              ? "No valid product offers found in CSV or all commission rates are 0%."
+              : "No product items found. Please provide an array of items or response from /api/v3/offer/product/list",
         },
         { status: 400 }
       );
     }
 
-    // 2. Upsert into database
+    // 3. Upsert into database
     const upsertResult = await shopeeTopOffersService.upsertTopOffers(sortedOffers);
 
     return NextResponse.json({
       success: true,
-      message: `Successfully processed ${sortedOffers.length} top rate offers.`,
+      message: `Successfully processed ${sortedOffers.length} top rate offers via ${importType}.`,
       count: sortedOffers.length,
+      importType,
       upsertResult,
       topOffers: sortedOffers.slice(0, 5),
     });
