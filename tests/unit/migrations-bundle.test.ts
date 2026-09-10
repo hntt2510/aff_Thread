@@ -87,4 +87,17 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('products_imported');
     expect(allStatements).toContain('source');
   });
+
+  it("includes migration 0008 with Shopee Sessions table", () => {
+    const mig0008 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0008_shopee_session_cookies");
+    expect(mig0008).toBeDefined();
+
+    const allStatements = mig0008!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "shopee_sessions"');
+    expect(allStatements).toContain('encrypted_cookies');
+    expect(allStatements).toContain('cookies_iv');
+    expect(allStatements).toContain('cookies_auth_tag');
+    expect(allStatements).toContain('status');
+  });
 });
+

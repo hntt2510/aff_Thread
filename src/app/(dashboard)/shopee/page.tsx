@@ -31,6 +31,11 @@ import {
   Eye,
   Loader2,
   Radio,
+  Link as LinkIcon,
+  Key,
+  Trash2,
+  X,
+  ShieldCheck,
 } from "lucide-react";
 
 interface ProductItem {
@@ -183,6 +188,33 @@ function ShopeeDealsContent() {
   } | null>(null);
   const [loadingAcquisition, setLoadingAcquisition] = useState(false);
 
+  // Shopee Direct Session State
+  const [sessionStatus, setSessionStatus] = useState<{
+    isConfigured: boolean;
+    status: string;
+    username: string | null;
+    affiliateId: string | null;
+    lastValidatedAt: string | null;
+    updatedAt: string | null;
+    lastError: string | null;
+  } | null>(null);
+  const [loadingSession, setLoadingSession] = useState(false);
+  const [testingSession, setTestingSession] = useState(false);
+  const [showCookieModal, setShowCookieModal] = useState(false);
+  const [cookieInput, setCookieInput] = useState("");
+  const [savingCookie, setSavingCookie] = useState(false);
+  const [cookieModalError, setCookieModalError] = useState<string | null>(null);
+
+  // Direct Quick Link Generator State
+  const [quickOriginalUrl, setQuickOriginalUrl] = useState("");
+  const [quickSubId, setQuickSubId] = useState("");
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [generatedLinkResult, setGeneratedLinkResult] = useState<{
+    shortLink?: string;
+    longLink?: string;
+    error?: string;
+  } | null>(null);
+
   // Helpers
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -275,8 +307,129 @@ function ShopeeDealsContent() {
     }
   }, []);
 
+  const fetchSessionStatus = useCallback(async () => {
+    try {
+      setLoadingSession(true);
+      const res = await fetch("/api/shopee/session");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSessionStatus(data.session);
+      }
+    } catch {
+      // best-effort
+    } finally {
+      setLoadingSession(false);
+    }
+  }, []);
+
+  const handleTestSession = async () => {
+    try {
+      setTestingSession(true);
+      setError(null);
+      setActionSuccess(null);
+      const res = await fetch("/api/shopee/session/test", { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionSuccess("Kết nối Shopee Session thành công! Trạng thái: ACTIVE");
+      } else {
+        setError(data.error || "Shopee Session không hợp lệ hoặc đã hết hạn.");
+      }
+      fetchSessionStatus();
+    } catch {
+      setError("Lỗi kết nối khi kiểm tra session Shopee.");
+    } finally {
+      setTestingSession(false);
+    }
+  };
+
+  const handleSaveCookies = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cookieInput.trim()) {
+      setCookieModalError("Vui lòng dán nội dung Cookie.");
+      return;
+    }
+
+    try {
+      setSavingCookie(true);
+      setCookieModalError(null);
+      const res = await fetch("/api/shopee/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookiePayload: cookieInput }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setShowCookieModal(false);
+        setCookieInput("");
+        setActionSuccess("Đã lưu và xác thực Shopee Session thành công!");
+        fetchSessionStatus();
+      } else {
+        setCookieModalError(data.error || "Không thể xác thực cookie Shopee. Vui lòng kiểm tra lại.");
+        fetchSessionStatus();
+      }
+    } catch {
+      setCookieModalError("Lỗi kết nối máy chủ khi lưu cookie.");
+    } finally {
+      setSavingCookie(false);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!confirm("Bạn có chắc chắn muốn hủy kết nối phiên Shopee hiện tại không?")) return;
+    try {
+      const res = await fetch("/api/shopee/session", { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionSuccess("Đã ngắt kết nối phiên Shopee.");
+        fetchSessionStatus();
+      }
+    } catch {
+      setError("Lỗi khi xóa phiên Shopee.");
+    }
+  };
+
+  const handleGenerateQuickLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickOriginalUrl.trim()) return;
+
+    try {
+      setGeneratingLink(true);
+      setGeneratedLinkResult(null);
+      const res = await fetch("/api/shopee/generate-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalUrl: quickOriginalUrl.trim(),
+          subIds: quickSubId.trim() ? [quickSubId.trim()] : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGeneratedLinkResult({
+          shortLink: data.shortLink,
+          longLink: data.longLink,
+        });
+      } else {
+        setGeneratedLinkResult({
+          error: data.error || "Không thể tạo link affiliate",
+        });
+        if (data.errorCategory === "AUTH_EXPIRED") {
+          fetchSessionStatus();
+        }
+      }
+    } catch {
+      setGeneratedLinkResult({
+        error: "Lỗi kết nối khi tạo link affiliate",
+      });
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
   useEffect(() => {
     fetchAcquisitionStatus();
+    fetchSessionStatus();
     if (activeTab === "WEEKLY_POOL") fetchWeeklyPool();
     if (activeTab === "PRODUCTS") fetchProducts();
     if (activeTab === "DEALS") {
@@ -287,7 +440,8 @@ function ShopeeDealsContent() {
       fetchPublishedPosts();
       fetchWeeklyPool();
     }
-  }, [activeTab, fetchWeeklyPool, fetchProducts, fetchDeals, fetchPublishedPosts, fetchAcquisitionStatus]);
+  }, [activeTab, fetchWeeklyPool, fetchProducts, fetchDeals, fetchPublishedPosts, fetchAcquisitionStatus, fetchSessionStatus]);
+
 
   // --- Handlers ---
   const handleGeneratePool = async () => {
@@ -574,6 +728,206 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
           <div className="flex-1">{error}</div>
         </div>
       )}
+
+      {/* Session Required / Expired Alert Banner */}
+      {(!sessionStatus?.isConfigured || sessionStatus?.status !== "ACTIVE") && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-sm">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-semibold block sm:inline">
+                Shopee Session Chưa Sẵn Sàng ({sessionStatus?.status || "NO_SESSION"}):
+              </strong>{" "}
+              Để tạo link affiliate trực tiếp và lấy thông tin ưu đãi không cần chạy Chromium, vui lòng cập nhật Cookie từ Google Chrome.
+            </div>
+          </div>
+          <button
+            onClick={() => setShowCookieModal(true)}
+            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          >
+            <Key className="w-3.5 h-3.5" />
+            Cập nhật Cookie ngay
+          </button>
+        </div>
+      )}
+
+      {/* Shopee Direct Session & Quick Shortlink Card */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Col: Session Status & Management */}
+        <div className="lg:col-span-6 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-orange-600" />
+              <span className="text-sm font-bold text-slate-800">Shopee Session (Direct API)</span>
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  sessionStatus?.status === "ACTIVE"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : sessionStatus?.status === "EXPIRED"
+                    ? "bg-rose-50 text-rose-700 border border-rose-200"
+                    : sessionStatus?.status === "CHALLENGE_REQUIRED"
+                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                    : "bg-slate-100 text-slate-600 border border-slate-200"
+                }`}
+              >
+                {sessionStatus?.status || "NO_SESSION"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleTestSession}
+                disabled={testingSession || !sessionStatus?.isConfigured}
+                className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-40 flex items-center gap-1"
+                title="Kiểm tra kết nối session với Shopee API"
+              >
+                <RefreshCw className={`w-3 h-3 ${testingSession ? "animate-spin" : ""}`} />
+                Kiểm tra
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+            <div>
+              <span className="text-slate-400 text-[11px] block">Tài khoản Shopee:</span>
+              <span className="font-semibold text-slate-800 truncate block">
+                {sessionStatus?.username ? `@${sessionStatus.username}` : sessionStatus?.isConfigured ? "Đã xác thực" : "Chưa cấu hình"}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 text-[11px] block">Xác thực gần nhất:</span>
+              <span className="font-semibold text-slate-800">
+                {sessionStatus?.lastValidatedAt
+                  ? new Date(sessionStatus.lastValidatedAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                  : "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 text-[11px] block">Cập nhật lúc:</span>
+              <span className="font-semibold text-slate-800">
+                {sessionStatus?.updatedAt
+                  ? new Date(sessionStatus.updatedAt).toLocaleDateString("vi-VN")
+                  : "—"}
+              </span>
+            </div>
+          </div>
+
+          {sessionStatus?.lastError && (
+            <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-lg text-xs text-rose-700 flex items-start gap-2">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <div className="truncate">{sessionStatus.lastError}</div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={() => setShowCookieModal(true)}
+              className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shadow-xs"
+            >
+              <Key className="w-3.5 h-3.5" />
+              {sessionStatus?.isConfigured ? "Cập nhật Cookie" : "Nạp Cookie Shopee"}
+            </button>
+            {sessionStatus?.isConfigured && (
+              <button
+                onClick={handleDeleteSession}
+                className="px-3 py-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                title="Hủy kết nối và xóa session"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Hủy kết nối
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right Col: Quick Link Generator Widget */}
+        <div className="lg:col-span-6 lg:border-l lg:border-slate-100 lg:pl-6 space-y-3">
+          <div className="flex items-center gap-2 pb-2">
+            <LinkIcon className="w-4 h-4 text-orange-600" />
+            <span className="text-sm font-bold text-slate-800">Rút Gọn Link Affiliate Shopee</span>
+          </div>
+
+          <form onSubmit={handleGenerateQuickLink} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-slate-600 block">Link sản phẩm gốc Shopee:</label>
+              <input
+                type="url"
+                placeholder="https://shopee.vn/product/123/456 hoặc https://shopee.vn/..."
+                value={quickOriginalUrl}
+                onChange={(e) => setQuickOriginalUrl(e.target.value)}
+                required
+                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="SubID tùy chọn (vd: threads_deal)"
+                value={quickSubId}
+                onChange={(e) => setQuickSubId(e.target.value)}
+                className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
+              <button
+                type="submit"
+                disabled={generatingLink || !quickOriginalUrl.trim()}
+                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shadow-xs"
+              >
+                {generatingLink ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Đang tạo...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    Tạo Link s.shopee.vn
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {generatedLinkResult && (
+            <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+              {generatedLinkResult.error ? (
+                <div className="text-rose-600 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{generatedLinkResult.error}</span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-emerald-700 block">Link Affiliate Rút Gọn:</span>
+                  <div className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200">
+                    <span className="font-mono text-xs text-slate-900 flex-1 truncate select-all">
+                      {generatedLinkResult.shortLink}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(generatedLinkResult.shortLink!)}
+                      className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+                      title="Copy link"
+                    >
+                      {copiedUrl === generatedLinkResult.shortLink ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <a
+                      href={generatedLinkResult.shortLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+                      title="Mở link"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Shopee Session Worker Acquisition Status */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
@@ -1368,6 +1722,92 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Cookie Input Modal */}
+      {showCookieModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Key className="w-5 h-5 text-orange-600" />
+                <h3 className="font-bold text-slate-900 text-base">Cập Nhật Session Cookie Shopee</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCookieModal(false);
+                  setCookieModalError(null);
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <strong className="text-slate-800 font-semibold block">Hướng dẫn trích xuất Cookie trên Google Chrome:</strong>
+              <ol className="list-decimal pl-4 space-y-1.5">
+                <li>Đăng nhập tài khoản Shopee trên trình duyệt Google Chrome thường.</li>
+                <li>Cài tiện ích <strong>Cookie-Editor</strong> trên Chrome Extension Store.</li>
+                <li>Truy cập trang Shopee/Shopee Affiliate, mở icon <strong>Cookie-Editor</strong> &rarr; bấm <strong>Export</strong> &rarr; chọn <strong>Export as JSON</strong>.</li>
+                <li>Dán nội dung JSON (hoặc chuỗi Header <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-800">SPC_EC=...; SPC_ST=...</code>) vào khung bên dưới.</li>
+              </ol>
+            </div>
+
+            {cookieModalError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">{cookieModalError}</div>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveCookies} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Nội dung Cookie (JSON Array hoặc Cookie Header String):
+                </label>
+                <textarea
+                  rows={7}
+                  value={cookieInput}
+                  onChange={(e) => setCookieInput(e.target.value)}
+                  placeholder={`[{"name":"SPC_EC","value":"..."},{"name":"SPC_ST","value":"..."}]\nhoặc\nSPC_EC=...; SPC_ST=...; SPC_U=...;`}
+                  required
+                  className="w-full font-mono text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-800"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCookieModal(false);
+                    setCookieModalError(null);
+                  }}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCookie || !cookieInput.trim()}
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-2"
+                >
+                  {savingCookie ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Đang mã hóa & xác thực...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Lưu & Xác Thực Phiên
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

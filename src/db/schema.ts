@@ -519,3 +519,26 @@ export const shopeeAcquisitionRuns = pgTable("shopee_acquisition_runs", {
 
 export type ShopeeAcquisitionRun = typeof shopeeAcquisitionRuns.$inferSelect;
 export type NewShopeeAcquisitionRun = typeof shopeeAcquisitionRuns.$inferInsert;
+
+export type ShopeeSessionStatus = "ACTIVE" | "EXPIRED" | "INVALID" | "CHALLENGE_REQUIRED";
+
+export const shopeeSessions = pgTable("shopee_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  encryptedCookies: text("encrypted_cookies").notNull(),
+  cookiesIv: text("cookies_iv").notNull(),
+  cookiesAuthTag: text("cookies_auth_tag").notNull(),
+  status: text("status").$type<ShopeeSessionStatus>().notNull().default("ACTIVE"),
+  username: text("username"),
+  affiliateId: text("affiliate_id"),
+  lastValidatedAt: timestamp("last_validated_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("shopee_sessions_status_idx").on(table.status),
+  index("shopee_sessions_updated_at_idx").on(table.updatedAt),
+]);
+
+export type ShopeeSession = typeof shopeeSessions.$inferSelect;
+export type NewShopeeSession = typeof shopeeSessions.$inferInsert;
+

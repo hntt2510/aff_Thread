@@ -196,5 +196,17 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"shopee_acq_status_idx\" ON \"shopee_acquisition_runs\" USING btree (\"status\");",
       "CREATE INDEX \"shopee_acq_created_at_idx\" ON \"shopee_acquisition_runs\" USING btree (\"created_at\");"
     ]
+  },
+  {
+    "tag": "0008_shopee_session_cookies",
+    "folderMillis": 1788970000000,
+    "bps": true,
+    "hash": "0d8a4702f28e14c97110cded883419da8e1bccfa973707e174958e6fcb983a89",
+    "sql": [
+      "CREATE TABLE \"shopee_sessions\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"encrypted_cookies\" text NOT NULL,\n\t\"cookies_iv\" text NOT NULL,\n\t\"cookies_auth_tag\" text NOT NULL,\n\t\"status\" text DEFAULT 'ACTIVE' NOT NULL,\n\t\"username\" text,\n\t\"affiliate_id\" text,\n\t\"last_validated_at\" timestamp with time zone,\n\t\"last_error\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+      "CREATE INDEX \"shopee_sessions_status_idx\" ON \"shopee_sessions\" USING btree (\"status\");",
+      "CREATE INDEX \"shopee_sessions_updated_at_idx\" ON \"shopee_sessions\" USING btree (\"updated_at\");"
+    ]
   }
 ];
+
