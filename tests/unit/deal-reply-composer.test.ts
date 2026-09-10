@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { dealReplyComposerService } from "@/services/shopee/deal-reply-composer.service";
+import {
+  dealReplyComposerService,
+  extractBundlePricing,
+  detectPostIntent,
+} from "@/services/shopee/deal-reply-composer.service";
 import { finalPriceCalculator } from "@/services/shopee/final-price-calculator";
 
 describe("DealReplyComposerService", () => {
@@ -92,7 +96,6 @@ describe("DealReplyComposerService", () => {
 
     expect(res.text).toContain("🎟️ Mã voucher (chạm để copy):\nSHOPEE99");
     expect(res.text).toContain("https://s.shopee.vn/testvoucher1");
-    // Verify the code appears strictly on its own line
     const lines = res.text.split("\n");
     expect(lines).toContain("SHOPEE99");
   });
@@ -115,5 +118,120 @@ describe("DealReplyComposerService", () => {
     expect(res.text).toContain("Giảm trực tiếp 25%: chỉ còn 150.000đ");
     expect(res.text).toContain("https://s.shopee.vn/directdeal1");
     expect(res.text).not.toContain("Mã voucher");
+  });
+
+  describe("Strategy A: HELPFUL_REVIEWER Persona", () => {
+    it("generates natural peer recommendation emphasizing strength, Shopee Mall trust, price and voucher", () => {
+      const calculation = finalPriceCalculator.calculate({
+        observedPrice: 320000,
+        voucherCode: "TECHMALL20",
+        voucherDiscountType: "PERCENT",
+        voucherDiscountPercent: 20,
+      });
+
+      const res = dealReplyComposerService.composeReply(
+        [
+          {
+            title: "Tai nghe Bluetooth chống ồn SoundCore Life Q30",
+            directAffiliateUrl: "https://s.shopee.vn/headphone-review",
+            calculation,
+            voucherCode: "TECHMALL20",
+          },
+        ],
+        { persona: "HELPFUL_REVIEWER" }
+      );
+
+      expect(res.templateId).toBe("tmpl_helpful_reviewer_v1");
+      expect(res.text).toContain("Nếu bạn đang tìm dòng xài êm bền");
+      expect(res.text).toContain("Tai nghe Bluetooth chống ồn SoundCore Life Q30");
+      expect(res.text).toContain("Hàng chuẩn Shopee Mall chính hãng");
+      expect(res.text).toContain("TECHMALL20");
+      expect(res.text).toContain("https://s.shopee.vn/headphone-review");
+    });
+  });
+
+  describe("Strategy B: COMBO_VALUE_HACKER Persona", () => {
+    it("calculates ultra-low unit cost from bundle title (e.g. Set 6 đôi tất)", () => {
+      const calculation = finalPriceCalculator.calculate({
+        observedPrice: 99999,
+        originalPrice: 150000,
+      });
+
+      const res = dealReplyComposerService.composeReply(
+        [
+          {
+            title: "Set 6 đôi tất cổ ngắn cotton kháng khuẩn thoáng khí",
+            directAffiliateUrl: "https://s.shopee.vn/combo-socks",
+            calculation,
+          },
+        ],
+        { persona: "COMBO_VALUE_HACKER" }
+      );
+
+      expect(res.templateId).toBe("tmpl_combo_value_hacker_v1");
+      // 99999 / 6 ≈ 16.6k or 16.7k
+      expect(res.text).toMatch(/Tính ra có ~\d+(\.\d+)?k\/đôi/);
+      expect(res.text).toContain("https://s.shopee.vn/combo-socks");
+      expect(res.text).toContain("tiết kiệm hơn mua lẻ");
+    });
+
+    it("calculates unit price for bulk cartons (e.g. Thùng 9 bịch khăn giấy)", () => {
+      const calculation = finalPriceCalculator.calculate({
+        observedPrice: 108000,
+        originalPrice: 180000,
+      });
+
+      const res = dealReplyComposerService.composeReply(
+        [
+          {
+            title: "Thùng 9 bịch khăn giấy gấu trúc Sipiao 4 lớp dày mịn",
+            directAffiliateUrl: "https://s.shopee.vn/tissue-box",
+            calculation,
+          },
+        ],
+        { persona: "COMBO_VALUE_HACKER" }
+      );
+
+      // 108000 / 9 = 12k/bịch
+      expect(res.text).toContain("~12k/bịch");
+      expect(res.text).toContain("https://s.shopee.vn/tissue-box");
+    });
+  });
+
+  describe("Intent Detection and Dual Persona Generator", () => {
+    it("detects recommendation inquiry intent accurately", () => {
+      expect(detectPostIntent("Mọi người review cho mình mẫu tai nghe chống ồn nào tốt với")).toBe("HELPFUL_REVIEWER");
+      expect(detectPostIntent("Xin gợi ý kem chống nắng kiềm dầu cho da mụn")).toBe("HELPFUL_REVIEWER");
+      expect(detectPostIntent("Có nên mua robot hút bụi này không mọi người?")).toBe("HELPFUL_REVIEWER");
+    });
+
+    it("detects general/viral intent for combo calculation hack", () => {
+      expect(detectPostIntent("Hôm nay trời đẹp quá đi dạo phố")).toBe("COMBO_VALUE_HACKER");
+      expect(detectPostIntent("Ăn trưa thôi cả nhà ơi")).toBe("COMBO_VALUE_HACKER");
+    });
+
+    it("composes dual replies simultaneously with bundle pricing metadata", () => {
+      const calculation = finalPriceCalculator.calculate({
+        observedPrice: 120000,
+        originalPrice: 200000,
+      });
+
+      const dual = dealReplyComposerService.composeDualPersonaReplies(
+        {
+          title: "Combo 3 áo thun trơn basic",
+          directAffiliateUrl: "https://s.shopee.vn/combo-tshirt",
+          calculation,
+        },
+        { postText: "Mọi người cho mình xin review áo thun này" }
+      );
+
+      expect(dual.recommendedPersona).toBe("HELPFUL_REVIEWER");
+      expect(dual.helpfulReviewer.text).toContain("Shopee Mall");
+      // 120000 / 3 = 40k
+      expect(dual.comboValueHacker.text).toContain("~40k/món");
+      expect(dual.bundlePricing.isBundle).toBe(true);
+      expect(dual.bundlePricing.bundleQuantity).toBe(3);
+      expect(dual.bundlePricing.unitPrice).toBe(40000);
+    });
   });
 });

@@ -184,6 +184,7 @@ function ShopeeDealsContent() {
   const [customMatcherText, setCustomMatcherText] = useState("");
   const [matcherResults, setMatcherResults] = useState<any>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number>(0);
+  const [activePersona, setActivePersona] = useState<"HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER">("HELPFUL_REVIEWER");
   const [runningMatcher, setRunningMatcher] = useState(false);
   const [creatingDraftPlan, setCreatingDraftPlan] = useState(false);
 
@@ -864,6 +865,9 @@ function ShopeeDealsContent() {
       if (res.ok && data.success) {
         setMatcherResults(data);
         setSelectedCandidateIndex(0);
+        if (data.recommendedPersona) {
+          setActivePersona(data.recommendedPersona);
+        }
       } else {
         setError(data.error || "Matcher failed");
       }
@@ -880,8 +884,9 @@ function ShopeeDealsContent() {
       matcherResults?.rankedMatches?.[selectedCandidateIndex] ||
       matcherResults?.rankedMatches?.[0];
     const replyText =
-      candidate?.replyPreview?.text ||
-      matcherResults?.replyPreview?.text;
+      activePersona === "COMBO_VALUE_HACKER"
+        ? (candidate?.replyCombo?.text || candidate?.replyPreview?.text)
+        : (candidate?.replyReviewer?.text || candidate?.replyPreview?.text);
 
     if (!replyText || !candidate) return;
     const targetPostId = selectedPostId || matcherResults.post?.id || "custom";
@@ -902,7 +907,7 @@ function ShopeeDealsContent() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setActionSuccess(`Draft monetization plan created for Candidate #${candidate.rank || selectedCandidateIndex + 1}! Inspect under /monetization.`);
+        setActionSuccess(`Draft monetization plan created for Candidate #${candidate.rank || selectedCandidateIndex + 1} (${activePersona === "COMBO_VALUE_HACKER" ? "Combo Hack" : "Reviewer"})! Inspect under /monetization.`);
       } else {
         alert(data.error || "Failed to create draft plan");
       }
@@ -2103,10 +2108,12 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                   const currentCandidate =
                     matcherResults.rankedMatches?.[selectedCandidateIndex] ||
                     matcherResults.rankedMatches?.[0];
+
                   const currentReplyText =
-                    currentCandidate?.replyPreview?.text ||
-                    matcherResults.replyPreview?.text ||
-                    "No preview text available";
+                    activePersona === "COMBO_VALUE_HACKER"
+                      ? (currentCandidate?.replyCombo?.text || currentCandidate?.replyPreview?.text)
+                      : (currentCandidate?.replyReviewer?.text || currentCandidate?.replyPreview?.text) ||
+                        "No preview text available";
 
                   return (
                     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
@@ -2122,7 +2129,51 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                         </span>
                       </div>
 
-                      <p className="text-xs text-slate-800 whitespace-pre-wrap bg-slate-50 p-3.5 rounded-lg border border-slate-200 font-mono">
+                      {/* Dual Persona Switcher */}
+                      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setActivePersona("HELPFUL_REVIEWER")}
+                          className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                            activePersona === "HELPFUL_REVIEWER"
+                              ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <span>💬 Review Trúng Đích</span>
+                          {currentCandidate?.recommendedPersona === "HELPFUL_REVIEWER" && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Được đề xuất cho bài hỏi mua/review" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActivePersona("COMBO_VALUE_HACKER")}
+                          className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                            activePersona === "COMBO_VALUE_HACKER"
+                              ? "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                        >
+                          <span>🧮 Tính Giá Combo</span>
+                          {currentCandidate?.recommendedPersona === "COMBO_VALUE_HACKER" && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500" title="Được đề xuất cho deal combo/viral" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Bundle Pricing Info Banner */}
+                      {currentCandidate?.bundlePricing?.isBundle && (
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
+                          <span className="text-amber-800 font-medium flex items-center gap-1">
+                            📦 Combo {currentCandidate.bundlePricing.bundleQuantity} {currentCandidate.bundlePricing.bundleUnit}:
+                          </span>
+                          <span className="font-bold text-orange-600 font-mono">
+                            ~{Math.round(currentCandidate.bundlePricing.unitPrice / 1000)}k/{currentCandidate.bundlePricing.bundleUnit}
+                          </span>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-800 whitespace-pre-wrap bg-slate-50 p-3.5 rounded-lg border border-slate-200 font-mono leading-relaxed">
                         {currentReplyText}
                       </p>
 
@@ -2135,10 +2186,10 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
                           <Plus className="w-4 h-4" />
                           {creatingDraftPlan
                             ? "Creating Plan..."
-                            : `Create Draft Monetization Plan (Candidate #${currentCandidate?.rank || selectedCandidateIndex + 1})`}
+                            : `Create Draft Monetization Plan (${activePersona === "COMBO_VALUE_HACKER" ? "Combo Hack" : "Reviewer"} - #${currentCandidate?.rank || selectedCandidateIndex + 1})`}
                         </button>
                         <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                          ℹ️ Creates a DRAFT plan in the monetization queue for Candidate #{currentCandidate?.rank || selectedCandidateIndex + 1}. Never publishes automatically without operator review.
+                          ℹ️ Creates a DRAFT plan in the monetization queue with the {activePersona === "COMBO_VALUE_HACKER" ? "Combo Value Hacker" : "Helpful Reviewer"} persona. Never publishes automatically without operator review.
                         </p>
                       </div>
                     </div>

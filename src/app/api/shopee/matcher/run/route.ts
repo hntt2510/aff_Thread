@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
           catalogScore: item.poolItem.catalogScore,
           dealOpportunityScore,
           dealCalculation,
+          price: dealObs?.observedPrice || dealCalculation?.observedPrice || dealCalculation?.finalPrice || null,
         });
       }
     } else {
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
           imageUrl: row.product.imageUrl,
           catalogScore: 60,
           dealOpportunityScore: 50,
+          price: null,
         });
       }
     }
@@ -143,32 +145,39 @@ export async function POST(req: NextRequest) {
       weights: body.weights,
     });
 
-    // 4. Generate Reply Preview for each candidate using Authoritative Calculation & Stacking
+    // 4. Generate Dual-Persona Replies (HELPFUL_REVIEWER & COMBO_VALUE_HACKER)
     const rankedMatchesWithPreview = rankedMatches.map((match) => {
       const calculation =
         match.product.dealCalculation ||
         finalPriceCalculator.calculate({
-          observedPrice: 100000,
+          observedPrice: match.product.price || 100000,
           userEligibility: "UNKNOWN",
         });
 
-      const replyPreview = dealReplyComposerService.composeReply([
-        {
-          title: match.product.title,
-          directAffiliateUrl: match.product.affiliateUrl,
-          calculation,
-          voucherCode: match.product.voucherCode ?? calculation.evidence?.voucherCode,
-          discountRate: match.product.discountRate,
-        },
-      ]);
+      const productItem = {
+        title: match.product.title,
+        directAffiliateUrl: match.product.affiliateUrl,
+        calculation,
+        voucherCode: match.product.voucherCode ?? calculation.evidence?.voucherCode,
+        discountRate: match.product.discountRate,
+      };
+
+      const dual = dealReplyComposerService.composeDualPersonaReplies(productItem, {
+        postText: targetText,
+      });
 
       return {
         ...match,
-        replyPreview,
+        replyPreview: dual.recommendedPersona === "HELPFUL_REVIEWER" ? dual.helpfulReviewer : dual.comboValueHacker,
+        replyReviewer: dual.helpfulReviewer,
+        replyCombo: dual.comboValueHacker,
+        recommendedPersona: dual.recommendedPersona,
+        bundlePricing: dual.bundlePricing,
       };
     });
 
     const replyPreview = rankedMatchesWithPreview[0]?.replyPreview || null;
+    const recommendedPersona = rankedMatchesWithPreview[0]?.recommendedPersona || "HELPFUL_REVIEWER";
 
     return NextResponse.json({
       success: true,
@@ -185,6 +194,7 @@ export async function POST(req: NextRequest) {
           },
       rankedMatches: rankedMatchesWithPreview,
       replyPreview,
+      recommendedPersona,
     });
   } catch (err: unknown) {
     const safe = sanitizeErrorMessage(err, "Failed to run product matcher");

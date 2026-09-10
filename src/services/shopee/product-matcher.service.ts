@@ -24,6 +24,7 @@ export interface MatcherCandidateItem {
   performanceScore?: number;
   voucherCode?: string | null;
   discountRate?: number | null;
+  price?: number | null;
 }
 
 export interface MatcherWeights {
