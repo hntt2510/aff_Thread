@@ -13,4 +13,9 @@ describe("WeeklyPoolService", () => {
     const weeks = await weeklyPoolService.listAvailableWeeks();
     expect(Array.isArray(weeks)).toBe(true);
   });
+
+  it("handles unpopulated weeks in getPoolForWeek without throwing and returns an array", async () => {
+    const pool = await weeklyPoolService.getPoolForWeek("2099-W52");
+    expect(Array.isArray(pool)).toBe(true);
+  });
 });

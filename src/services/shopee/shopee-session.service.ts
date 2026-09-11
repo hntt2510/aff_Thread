@@ -46,36 +46,49 @@ export class ShopeeSessionService {
    * Never exposes raw cookies or encryption keys.
    */
   async getSessionStatus(): Promise<PublicShopeeSessionStatus> {
-    return runWithAutoMigration(async () => {
-      const records = await db
-        .select()
-        .from(shopeeSessions)
-        .orderBy(desc(shopeeSessions.updatedAt))
-        .limit(1);
+    try {
+      return await runWithAutoMigration(async () => {
+        const records = await db
+          .select()
+          .from(shopeeSessions)
+          .orderBy(desc(shopeeSessions.updatedAt))
+          .limit(1);
 
-      if (records.length === 0) {
+        if (!records || records.length === 0) {
+          return {
+            isConfigured: false,
+            status: "NO_SESSION",
+            username: null,
+            affiliateId: null,
+            lastValidatedAt: null,
+            updatedAt: null,
+            lastError: null,
+          };
+        }
+
+        const session = records[0];
         return {
-          isConfigured: false,
-          status: "NO_SESSION",
-          username: null,
-          affiliateId: null,
-          lastValidatedAt: null,
-          updatedAt: null,
-          lastError: null,
+          isConfigured: true,
+          status: session.status,
+          username: session.username,
+          affiliateId: session.affiliateId,
+          lastValidatedAt: session.lastValidatedAt ? session.lastValidatedAt.toISOString() : null,
+          updatedAt: session.updatedAt ? session.updatedAt.toISOString() : null,
+          lastError: session.lastError,
         };
-      }
-
-      const session = records[0];
+      });
+    } catch (err) {
+      console.warn("Could not retrieve Shopee session status, defaulting to NO_SESSION:", err);
       return {
-        isConfigured: true,
-        status: session.status,
-        username: session.username,
-        affiliateId: session.affiliateId,
-        lastValidatedAt: session.lastValidatedAt ? session.lastValidatedAt.toISOString() : null,
-        updatedAt: session.updatedAt ? session.updatedAt.toISOString() : null,
-        lastError: session.lastError,
+        isConfigured: false,
+        status: "NO_SESSION",
+        username: null,
+        affiliateId: null,
+        lastValidatedAt: null,
+        updatedAt: null,
+        lastError: null,
       };
-    });
+    }
   }
 
   /**

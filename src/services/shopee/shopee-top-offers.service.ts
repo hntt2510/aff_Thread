@@ -885,7 +885,7 @@ export class ShopeeTopOffersService {
       conditions.push(sql`(${affiliateProducts.title} ILIKE ${term} OR ${affiliateProducts.category} ILIKE ${term})`);
     }
 
-    // Query products joined with their latest offer
+    // Query products joined with their latest offer (using leftJoin for resilience)
     const baseQuery = db
       .select({
         productId: affiliateProducts.id,
@@ -902,13 +902,27 @@ export class ShopeeTopOffersService {
         metadataJson: affiliateProductOffers.sourceMetadataJson,
       })
       .from(affiliateProducts)
-      .innerJoin(
+      .leftJoin(
         affiliateProductOffers,
         eq(affiliateProductOffers.productId, affiliateProducts.id)
       )
       .where(and(...conditions));
 
-    const rows = await baseQuery;
+    let rows: any[] = [];
+    try {
+      rows = await baseQuery;
+    } catch (dbErr) {
+      console.warn("Failed to query top rate offers from database, returning empty list:", dbErr);
+      return {
+        items: [],
+        total: 0,
+        stats: {
+          maxRate: 0,
+          avgRate: 0,
+          count: 0,
+        },
+      };
+    }
 
     // Transform and filter in memory for dynamic parsed fields (rate, price, originalPrice)
     const mapped = rows.map((row) => {
@@ -921,11 +935,11 @@ export class ShopeeTopOffersService {
 
       const rawRate = row.commissionRate
         ? parseFloat(row.commissionRate.replace("%", "").replace(",", "."))
-        : 0;
+        : (meta.rate || 0);
 
       return {
         id: row.productId,
-        offerId: row.offerId,
+        offerId: row.offerId || row.productId,
         itemId: row.itemId || "",
         title: row.title,
         price: meta.price || (row.commissionAmount && rawRate ? Math.round((row.commissionAmount * 100) / rawRate) : 0),

@@ -324,7 +324,9 @@ export class TiktokTrendService {
 
   /**
    * Rewrites a raw TikTok caption into an engaging, conversational Vietnamese Threads hook.
-   * Strips hashtag spam (#xh, #fyp, #trending) and mentions, framing the post as discussion bait.
+   * Strips hashtag spam (#xh, #fyp, #trending) and mentions.
+   * Categorizes the content into News/Tragedy, Shopping/Review, or Lifestyle/Viral
+   * to ensure sensitive topics never receive inappropriate shopping or review templates.
    */
   rewriteCaptionForThreads(rawCaption: string, options?: { author?: string }): string {
     if (!rawCaption || !rawCaption.trim()) {
@@ -341,17 +343,110 @@ export class TiktokTrendService {
     // 2. Remove trailing ellipsis or punctuation clutter
     cleaned = cleaned.replace(/[.]{3,}$/, "").trim();
 
-    // 3. Conversational bait hook templates for Vietnamese Threads
-    const hookTemplates = [
-      `Lướt tóp tóp thấy quả này cuốn quá mọi người ơi. Có ai dùng rồi cho xin review thật với:\n\n"${cleaned}"\n\nBác nào trải nghiệm rồi cho xin tí ý kiến ở dưới với nha 👇`,
-      `Thấy video này đang rần rần mấy hôm nay mà phân vân ghê:\n\n"${cleaned}"\n\nCó bạn nào thử qua rồi confirm giùm mình xem có êm như đồn không ạ? 👀`,
-      `Không nghĩ cái này lại viral dữ vậy luôn á cả nhà:\n\n"${cleaned}"\n\nAi xài qua rồi cho xin lời khuyên có nên chốt không với nhé!`,
-      `Dạo này thấy món này xuất hiện liên tục trên feed:\n\n"${cleaned}"\n\nReview chân thật giùm mình với mọi người ơi 👇`,
+    const lower = cleaned.toLowerCase();
+    const sensitiveKeywords = [
+      "tử vong",
+      "tai nạn",
+      "cưa",
+      "cháy",
+      "bắt giữ",
+      "khởi tố",
+      "đâm",
+      "thiệt mạng",
+      "nguy kịch",
+      "cứu hộ",
+      "án mạng",
+      "truy nã",
+      "ngộ độc",
+      "sạt lở",
+      "đuối nước",
+      "vụ việc",
+      "công an",
+      "cảnh sát",
+      "hình sự",
+      "bắt quả tang",
+      "trộm",
+      "cướp",
+      "giết",
+      "thiệt hại",
+      "nạn nhân",
+      "thương tâm",
+      "bệnh viện",
+      "cấp cứu",
+      "hỏa hoạn",
+      "va chạm",
+    ];
+    const newsAuthorPattern = /(vnexpress|vtvcab|vtv24|thoisuvtv|tuoitre|dantri|cand|bnews|tintuc|kenh14)/i;
+
+    const isNewsAuthor = Boolean(options?.author && newsAuthorPattern.test(options.author));
+    const hasSensitiveKeyword = sensitiveKeywords.some((kw) => lower.includes(kw));
+
+    // A. Sensitive News / Tragedy / Safety Caution: NEVER use shopping or review templates
+    if (hasSensitiveKeyword || isNewsAuthor) {
+      const newsHookTemplates = [
+        `Vụ việc đang được quan tâm trên MXH:\n\n"${cleaned}"\n\nMọi người chú ý cẩn thận và giữ an toàn nhé!`,
+        `Thông tin đang gây xôn xao cộng đồng mạng:\n\n"${cleaned}"\n\nCầu mong mọi người bình an.`,
+        `Một sự việc đáng chú ý vừa xảy ra:\n\n"${cleaned}"\n\nCẩn trọng hơn khi ra ngoài nha cả nhà!`,
+      ];
+      const idx = Math.abs(cleaned.length) % newsHookTemplates.length;
+      return newsHookTemplates[idx];
+    }
+
+    // B. Shopping / Product / Skincare reviews
+    const shoppingKeywords = [
+      "review",
+      "dùng thử",
+      "serum",
+      "kem",
+      "chống nắng",
+      "mua",
+      "sale",
+      "giá",
+      "son",
+      "phấn",
+      "quần",
+      "áo",
+      "tai nghe",
+      "nồi",
+      "chảo",
+      "đồ gia dụng",
+      "decor",
+      "món này",
+      "mỹ phẩm",
+      "chăm sóc da",
+      "unboxing",
+      "đập hộp",
+      "trải nghiệm",
+      "shopee",
+      "săn sale",
+      "bình giữ nhiệt",
+      "máy sấy",
+      "chảo chống dính",
+      "thỏi son",
+      "nước hoa",
+      "bàn chải",
     ];
 
-    // Pick deterministic template based on caption length
-    const idx = Math.abs(cleaned.length) % hookTemplates.length;
-    const formatted = hookTemplates[idx];
+    const hasShoppingKeyword = shoppingKeywords.some((kw) => lower.includes(kw));
+    if (hasShoppingKeyword) {
+      const shoppingHookTemplates = [
+        `Lướt tóp tóp thấy quả này cuốn quá mọi người ơi. Có ai dùng rồi cho xin review thật với:\n\n"${cleaned}"\n\nBác nào trải nghiệm rồi cho xin tí ý kiến ở dưới với nha 👇`,
+        `Thấy video này đang rần rần mấy hôm nay mà phân vân ghê:\n\n"${cleaned}"\n\nCó bạn nào thử qua rồi confirm giùm mình xem có êm như đồn không ạ? 👀`,
+        `Không nghĩ cái này lại viral dữ vậy luôn á cả nhà:\n\n"${cleaned}"\n\nAi xài qua rồi cho xin lời khuyên có nên chốt không với nhé!`,
+        `Dạo này thấy món này xuất hiện liên tục trên feed:\n\n"${cleaned}"\n\nReview chân thật giùm mình với mọi người ơi 👇`,
+      ];
+      const idx = Math.abs(cleaned.length) % shoppingHookTemplates.length;
+      return shoppingHookTemplates[idx];
+    }
+
+    // C. General Viral / Entertainment / Lifestyle Discussion Bait
+    const generalHookTemplates = [
+      `Lướt thấy clip này viral quá:\n\n"${cleaned}"\n\nMọi người nghĩ sao về vụ này? =))`,
+      `Xem clip này mà cuốn thực sự cả nhà ơi:\n\n"${cleaned}"\n\nCó ai từng gặp tình huống tương tự chưa? 😂👇`,
+      `Đúng là lướt mạng không bao giờ thiếu bất ngờ:\n\n"${cleaned}"\n\nCả nhà thấy pha này xử lý vậy ổn áp chưa? 👀`,
+    ];
+    const idx = Math.abs(cleaned.length) % generalHookTemplates.length;
+    const formatted = generalHookTemplates[idx];
 
     // Ensure under Threads character limit (500 chars)
     if (formatted.length > 490) {
@@ -380,6 +475,10 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   const openAiKey = process.env.OPENAI_API_KEY;
 
+  if (!geminiKey && !openAiKey) {
+    console.warn("[generateBaitCaption] Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured. Using category-aware deterministic rewriter.");
+  }
+
   if (geminiKey) {
     try {
       const controller = new AbortController();
@@ -394,7 +493,12 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
             {
               parts: [
                 {
-                  text: `You are an expert Threads creator in Vietnam. Transform this TikTok video caption into an engaging, conversational Vietnamese Threads post hook (under 450 characters). It should frame the topic as discussion bait (e.g. asking for honest reviews, sharing curious life/skincare tips, sparking debate). Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.\n\nVideo caption: "${videoTitle}"`,
+                  text: `You are an expert Threads creator in Vietnam. Transform this TikTok video caption into an engaging, conversational Vietnamese Threads post hook (under 450 characters).
+IMPORTANT:
+- If the video is about news, accidents, fires, crimes, or tragic events, maintain a respectful, empathetic, safety-conscious tone. NEVER promote products, jokes, or ask for product reviews on tragic news.
+- If the video is about shopping, skincare, tech gadgets, or products, frame it as asking for honest user reviews or sharing curiosity.
+- If the video is humorous, lifestyle, or general viral discussion, frame it as engaging debate or community chat.
+Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.\n\nVideo caption: "${videoTitle}"`,
                 },
               ],
             },
@@ -411,9 +515,11 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
         if (candidateText && candidateText.length <= 500) {
           return candidateText;
         }
+      } else {
+        console.warn(`[generateBaitCaption] Gemini API returned status ${res.status}`);
       }
-    } catch {
-      // Fallback to deterministic rewriter on error or timeout
+    } catch (err) {
+      console.warn("[generateBaitCaption] Gemini API call failed or timed out:", err);
     }
   }
 
@@ -434,7 +540,7 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
             {
               role: "system",
               content:
-                "You are a Threads content creator in Vietnam. Transform video captions into engaging, conversational Vietnamese Threads hooks under 450 characters without hashtags or quotes.",
+                "You are a Threads content creator in Vietnam. Transform video captions into engaging, conversational Vietnamese Threads hooks under 450 characters without hashtags or quotes. Respect sensitive or tragic news with a safety-focused respectful tone, never promote products or jokes on tragedy.",
             },
             {
               role: "user",
@@ -454,12 +560,14 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
         if (content && content.length <= 500) {
           return content;
         }
+      } else {
+        console.warn(`[generateBaitCaption] OpenAI API returned status ${res.status}`);
       }
-    } catch {
-      // Fallback to deterministic rewriter on error or timeout
+    } catch (err) {
+      console.warn("[generateBaitCaption] OpenAI API call failed or timed out:", err);
     }
   }
 
-  // Graceful deterministic fallback
+  // Graceful deterministic category-aware fallback
   return tiktokTrendService.rewriteCaptionForThreads(videoTitle);
 }

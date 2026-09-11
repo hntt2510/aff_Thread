@@ -43,10 +43,16 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { success: false, error: `Failed to fetch top rate offers: ${message}` },
-      { status: 500 }
-    );
+    console.warn("Could not retrieve top rate offers, defaulting to empty list:", message);
+    return NextResponse.json({
+      success: true,
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 24,
+      stats: { maxRate: 0, avgRate: 0, count: 0 },
+      warning: `Failed to fetch top rate offers: ${message}`,
+    });
   }
 }
 

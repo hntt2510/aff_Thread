@@ -263,5 +263,59 @@ describe("Trend Discovery & Bait-Post Draft Seeding", () => {
 
       delete process.env.GEMINI_API_KEY;
     });
+
+    it("identifies sensitive tragedy/news content and uses safety/news hooks without asking for reviews", async () => {
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+
+      const newsTitle = "Vụ tai nạn giao thông nghiêm trọng trên đèo Bảo Lộc khiến 2 người tử vong";
+      const newsCaption = tiktokTrendService.rewriteCaptionForThreads(newsTitle, { author: "vnexpress" });
+
+      expect(newsCaption).toContain("Vụ tai nạn giao thông");
+      // Must NOT contain shopping review bait
+      expect(newsCaption).not.toContain("dùng rồi cho xin review");
+      expect(newsCaption).not.toContain("có nên chốt không");
+      // Must contain safety or news hook
+      const hasSafetyOrNewsHook =
+        newsCaption.includes("chú ý cẩn thận") ||
+        newsCaption.includes("bình an") ||
+        newsCaption.includes("Cẩn trọng");
+      expect(hasSafetyOrNewsHook).toBe(true);
+    });
+
+    it("identifies shopping/skincare product content and uses review hooks", async () => {
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+
+      const prodTitle = "Review serum dưỡng trắng da mờ thâm nám hot nhất shopee";
+      const prodCaption = tiktokTrendService.rewriteCaptionForThreads(prodTitle);
+
+      expect(prodCaption).toContain("Review serum dưỡng trắng da");
+      const hasReviewHook =
+        prodCaption.includes("review thật") ||
+        prodCaption.includes("confirm") ||
+        prodCaption.includes("chốt không") ||
+        prodCaption.includes("Review chân thật");
+      expect(hasReviewHook).toBe(true);
+    });
+
+    it("identifies general viral/lifestyle content and uses discussion hooks without product review", async () => {
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+
+      const viralTitle = "Pha xử lý cồng kềnh của chú chó cưng khi bị phát hiện ăn vụng";
+      const viralCaption = tiktokTrendService.rewriteCaptionForThreads(viralTitle);
+
+      expect(viralCaption).toContain("Pha xử lý cồng kềnh");
+      expect(viralCaption).not.toContain("Có ai dùng rồi");
+      const hasDiscussionHook =
+        viralCaption.includes("viral quá") ||
+        viralCaption.includes("cuốn thực sự") ||
+        viralCaption.includes("bất ngờ");
+      expect(hasDiscussionHook).toBe(true);
+    });
   });
 });

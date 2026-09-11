@@ -485,9 +485,10 @@ export class WeeklyPoolService {
 
   /**
    * Retrieves the product pool for a specified week (defaults to current week).
+   * If the requested week has no records, seamlessly falls back to the latest available week.
    */
   async getPoolForWeek(week = getCurrentIsoWeek()) {
-    const poolRows = await db
+    let poolRows = await db
       .select({
         poolItem: weeklyProductPool,
         product: affiliateProducts,
@@ -498,6 +499,30 @@ export class WeeklyPoolService {
       .leftJoin(affiliateProductOffers, eq(weeklyProductPool.offerId, affiliateProductOffers.id))
       .where(eq(weeklyProductPool.weekStart, week))
       .orderBy(weeklyProductPool.rank);
+
+    // Fallback: If no records exist for the specified week, query the most recent available week
+    if (poolRows.length === 0) {
+      const latestWeekRecord = await db
+        .select({ weekStart: weeklyProductPool.weekStart })
+        .from(weeklyProductPool)
+        .orderBy(desc(weeklyProductPool.weekStart))
+        .limit(1);
+
+      if (latestWeekRecord.length > 0 && latestWeekRecord[0].weekStart) {
+        const latestWeek = latestWeekRecord[0].weekStart;
+        poolRows = await db
+          .select({
+            poolItem: weeklyProductPool,
+            product: affiliateProducts,
+            offer: affiliateProductOffers,
+          })
+          .from(weeklyProductPool)
+          .innerJoin(affiliateProducts, eq(weeklyProductPool.productId, affiliateProducts.id))
+          .leftJoin(affiliateProductOffers, eq(weeklyProductPool.offerId, affiliateProductOffers.id))
+          .where(eq(weeklyProductPool.weekStart, latestWeek))
+          .orderBy(weeklyProductPool.rank);
+      }
+    }
 
     return poolRows.map((row) => {
       let dealCalculation: any = null;

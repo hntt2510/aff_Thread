@@ -9,10 +9,19 @@ export async function GET() {
     return NextResponse.json({ success: true, session });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { success: false, error: `Failed to fetch session status: ${message}` },
-      { status: 500 }
-    );
+    console.warn("Could not retrieve Shopee session status:", message);
+    return NextResponse.json({
+      success: true,
+      session: {
+        isConfigured: false,
+        status: "NO_SESSION",
+        username: null,
+        affiliateId: null,
+        lastValidatedAt: null,
+        updatedAt: null,
+        lastError: message,
+      },
+    });
   }
 }
 
