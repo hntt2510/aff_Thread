@@ -146,6 +146,13 @@ function ShopeeDealsContent() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams, activeTab]);
+
   // Tab 1: Weekly Pool State
   const [selectedWeek, setSelectedWeek] = useState<string>("");
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);

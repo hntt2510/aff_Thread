@@ -41,6 +41,18 @@ const QUICK_SEARCH_CHIPS = [
   { label: "Thời trang / OOTD 👗", query: "phối đồ outfit", region: "VN" },
 ];
 
+export interface MatchedProductDraft {
+  id: string;
+  name: string;
+  price: number;
+  shopVoucherCode?: string;
+  shopDiscountAmount?: number;
+  replyReviewer: string;
+  replyCombo: string;
+  recommendedPersona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
+  affiliateUrl: string;
+}
+
 export default function TrendDiscoveryTab() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("VN");
@@ -57,8 +69,7 @@ export default function TrendDiscoveryTab() {
   const [selectedCandidate, setSelectedCandidate] = useState<ViralContentCandidate | null>(null);
   const [preparingBait, setPreparingBait] = useState(false);
   const [rewrittenCaption, setRewrittenCaption] = useState("");
-  const [matchedDeals, setMatchedDeals] = useState<any[]>([]);
-  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
+  const [matchedProduct, setMatchedProduct] = useState<MatchedProductDraft | null>(null);
   const [activePersona, setActivePersona] = useState<"HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER">("HELPFUL_REVIEWER");
   const [customReplyText, setCustomReplyText] = useState("");
   const [savingDraft, setSavingDraft] = useState(false);
@@ -106,7 +117,7 @@ export default function TrendDiscoveryTab() {
 
         const data = await res.json();
         if (res.ok && data.success) {
-          setCandidates(data.candidates || []);
+          setCandidates(data.data || data.candidates || []);
         } else {
           setError(data.error || "Failed to fetch viral videos");
         }
@@ -129,59 +140,52 @@ export default function TrendDiscoveryTab() {
     setSelectedCandidate(candidate);
     setPreparingBait(true);
     setSaveSuccess(null);
-    setSelectedCandidateIndex(0);
 
     try {
-      const res = await fetch("/api/trends/prepare-bait", {
+      const res = await fetch("/api/trends/generate-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidate }),
+        body: JSON.stringify({
+          videoTitle: candidate.title,
+          videoUrl: candidate.videoUrl,
+          coverUrl: candidate.coverUrl,
+          videoId: candidate.id,
+        }),
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
-        setRewrittenCaption(data.rewrittenCaption);
-        setMatchedDeals(data.matchedDeals || []);
-        const rec = data.recommendedPersona || "HELPFUL_REVIEWER";
-        setActivePersona(rec);
-
-        const primaryMatch = data.matchedDeals?.[0];
-        if (primaryMatch) {
+      if (res.ok && data.success && data.draft) {
+        setRewrittenCaption(data.draft.baitCaption || candidate.suggestedThreadsCaption || candidate.title);
+        const matched = data.draft.matchedProduct as MatchedProductDraft | null;
+        setMatchedProduct(matched);
+        if (matched) {
+          const rec = matched.recommendedPersona || "HELPFUL_REVIEWER";
+          setActivePersona(rec);
           setCustomReplyText(
-            rec === "COMBO_VALUE_HACKER" ? primaryMatch.replyCombo : primaryMatch.replyReviewer
+            rec === "COMBO_VALUE_HACKER" ? matched.replyCombo : matched.replyReviewer
           );
         } else {
           setCustomReplyText("");
         }
       } else {
         setRewrittenCaption(candidate.suggestedThreadsCaption || candidate.title);
-        setMatchedDeals([]);
+        setMatchedProduct(null);
+        setCustomReplyText("");
       }
     } catch {
       setRewrittenCaption(candidate.suggestedThreadsCaption || candidate.title);
-      setMatchedDeals([]);
+      setMatchedProduct(null);
+      setCustomReplyText("");
     } finally {
       setPreparingBait(false);
     }
   };
 
-  // Sync custom reply text when switching candidate or persona
-  const handleSelectCandidateCard = (index: number) => {
-    setSelectedCandidateIndex(index);
-    const candidate = matchedDeals[index];
-    if (candidate) {
-      setCustomReplyText(
-        activePersona === "COMBO_VALUE_HACKER" ? candidate.replyCombo : candidate.replyReviewer
-      );
-    }
-  };
-
   const handleSelectPersona = (persona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER") => {
     setActivePersona(persona);
-    const candidate = matchedDeals[selectedCandidateIndex];
-    if (candidate) {
+    if (matchedProduct) {
       setCustomReplyText(
-        persona === "COMBO_VALUE_HACKER" ? candidate.replyCombo : candidate.replyReviewer
+        persona === "COMBO_VALUE_HACKER" ? matchedProduct.replyCombo : matchedProduct.replyReviewer
       );
     }
   };
@@ -220,9 +224,8 @@ export default function TrendDiscoveryTab() {
       const createdPostId = postData.post.id;
 
       // 2. If matched deal exists and custom reply text is provided, create Draft Monetization Plan
-      const activeMatch = matchedDeals[selectedCandidateIndex];
-      if (activeMatch && customReplyText.trim()) {
-        const affUrl = activeMatch.product?.affiliateUrl || activeMatch.product?.productUrl;
+      if (matchedProduct && customReplyText.trim()) {
+        const affUrl = matchedProduct.affiliateUrl;
         await fetch("/api/shopee/matcher/create-plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -248,6 +251,12 @@ export default function TrendDiscoveryTab() {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
     return num.toString();
+  };
+
+  const formatK = (val: number | null | undefined): string => {
+    if (val === null || val === undefined || isNaN(val) || val <= 0) return "0k";
+    const k = val / 1000;
+    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
   };
 
   return (
@@ -456,7 +465,7 @@ export default function TrendDiscoveryTab() {
                     onClick={() => handleOpenBaitModal(cand)}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
                   >
-                    <Sparkles className="w-3.5 h-3.5" /> Use as Bait Post
+                    🚀 Use as Bait Post
                   </button>
                 </div>
               </div>
@@ -608,47 +617,46 @@ export default function TrendDiscoveryTab() {
                         <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                           <ShoppingBag className="w-3.5 h-3.5 text-orange-600" /> Sản phẩm tiếp thị phù hợp (Weekly Pool)
                         </label>
-                        <span className="text-[11px] text-slate-400">Chọn 1 trong 3 deals</span>
+                        {matchedProduct && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                            🎯 Best Deal Match
+                          </span>
+                        )}
                       </div>
 
-                      {matchedDeals.length === 0 ? (
+                      {!matchedProduct ? (
                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
                           Chưa tìm thấy deal tương ứng từ Weekly Pool. Bạn vẫn có thể lưu bài Draft video này.
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          {matchedDeals.map((match, idx) => (
-                            <button
-                              key={match.product?.id || idx}
-                              type="button"
-                              onClick={() => handleSelectCandidateCard(idx)}
-                              className={`p-2.5 rounded-xl border text-left transition-all ${
-                                selectedCandidateIndex === idx
-                                  ? "border-orange-500 bg-orange-50/50 ring-2 ring-orange-500/20 shadow-xs"
-                                  : "border-slate-200 bg-white hover:border-slate-300"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-1 mb-1">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">
-                                  #{idx + 1} Match {Math.round(match.totalMatchScore)}%
-                                </span>
-                              </div>
-                              <p className="text-xs font-bold text-slate-800 truncate" title={match.product?.title}>
-                                {match.product?.title}
-                              </p>
-                              <div className="text-[11px] font-bold text-orange-600 mt-1">
-                                {match.product?.dealCalculation?.estimatedFinalPrice
-                                  ? `${match.product.dealCalculation.estimatedFinalPrice.toLocaleString("vi-VN")}đ`
-                                  : "Ưu đãi"}
-                              </div>
-                            </button>
-                          ))}
+                        <div className="p-3 bg-white border-2 border-orange-400/80 rounded-xl shadow-xs space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-bold text-slate-800 truncate" title={matchedProduct.name}>
+                              {matchedProduct.name}
+                            </p>
+                            <div className="text-xs font-bold text-orange-600 shrink-0">
+                              {matchedProduct.price ? `${matchedProduct.price.toLocaleString("vi-VN")}đ` : "Ưu đãi"}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            {matchedProduct.shopVoucherCode && (
+                              <span className="bg-purple-100 text-purple-700 font-mono font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border border-purple-200">
+                                🎟 Mã shop: {matchedProduct.shopVoucherCode}
+                                {matchedProduct.shopDiscountAmount ? ` (giảm ${formatK(matchedProduct.shopDiscountAmount)})` : ""}
+                              </span>
+                            )}
+                            {matchedProduct.affiliateUrl && (
+                              <span className="text-indigo-600 font-mono font-medium truncate max-w-sm flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                                <ExternalLink className="w-3 h-3 shrink-0" /> {matchedProduct.affiliateUrl}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
 
                     {/* 4. Persona Switcher & Comment Preview */}
-                    {matchedDeals.length > 0 && (
+                    {matchedProduct && (
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">

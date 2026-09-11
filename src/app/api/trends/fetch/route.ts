@@ -17,25 +17,22 @@ export async function POST(req: NextRequest) {
 
     let candidates = [];
     if (query && typeof query === "string" && query.trim()) {
-      candidates = await tiktokTrendService.searchViralVideos({
-        query: query.trim(),
-        region,
-        count: Number(count) || 20,
-        minViews: Number(minViews) || 50000,
-        minLikes: Number(minLikes) || 2000,
-      });
+      candidates = await tiktokTrendService.search(
+        query.trim(),
+        Number(count) || 20,
+        region
+      );
     } else {
-      candidates = await tiktokTrendService.fetchTrendingVideos({
-        region,
-        count: Number(count) || 20,
-        minViews: Number(minViews) || 50000,
-        minLikes: Number(minLikes) || 2000,
-      });
+      candidates = await tiktokTrendService.fetchTrending(
+        region || "VN",
+        Number(count) || 20
+      );
     }
 
     return NextResponse.json({
       success: true,
       count: candidates.length,
+      data: candidates,
       candidates,
       query: query || null,
       region,

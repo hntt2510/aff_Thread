@@ -64,6 +64,20 @@ export class TiktokTrendService {
   }
 
   /**
+   * Convenience alias for fetching regional trending videos.
+   */
+  async fetchTrending(region = "VN", count = 20): Promise<ViralContentCandidate[]> {
+    return this.fetchTrendingVideos({ region, count });
+  }
+
+  /**
+   * Convenience alias for searching viral videos.
+   */
+  async search(query: string, count = 20, region = "VN"): Promise<ViralContentCandidate[]> {
+    return this.searchViralVideos({ query, count, region });
+  }
+
+  /**
    * Fetches trending videos for a specified region (default: "VN").
    * Prioritizes official TikW-API if TIKW_API_KEY is configured.
    */
@@ -346,6 +360,106 @@ export class TiktokTrendService {
 
     return formatted;
   }
+
+  /**
+   * Generates conversational Threads bait caption using LLM with rule-based fallback.
+   */
+  async generateBaitCaption(videoTitle: string): Promise<string> {
+    return generateBaitCaption(videoTitle);
+  }
 }
 
 export const tiktokTrendService = new TiktokTrendService();
+
+/**
+ * Generates an engaging Vietnamese Threads bait post caption from a video title.
+ * Uses Gemini or OpenAI API if configured in environment, with automatic fallback
+ * to rule-based conversational hook rewriter.
+ */
+export async function generateBaitCaption(videoTitle: string): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const openAiKey = process.env.OPENAI_API_KEY;
+
+  if (geminiKey) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `You are an expert Threads creator in Vietnam. Transform this TikTok video caption into an engaging, conversational Vietnamese Threads post hook (under 450 characters). It should frame the topic as discussion bait (e.g. asking for honest reviews, sharing curious life/skincare tips, sparking debate). Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.\n\nVideo caption: "${videoTitle}"`,
+                },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (candidateText && candidateText.length <= 500) {
+          return candidateText;
+        }
+      }
+    } catch {
+      // Fallback to deterministic rewriter on error or timeout
+    }
+  }
+
+  if (openAiKey) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openAiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a Threads content creator in Vietnam. Transform video captions into engaging, conversational Vietnamese Threads hooks under 450 characters without hashtags or quotes.",
+            },
+            {
+              role: "user",
+              content: `Video caption: "${videoTitle}"`,
+            },
+          ],
+          max_tokens: 200,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content?.trim();
+        if (content && content.length <= 500) {
+          return content;
+        }
+      }
+    } catch {
+      // Fallback to deterministic rewriter on error or timeout
+    }
+  }
+
+  // Graceful deterministic fallback
+  return tiktokTrendService.rewriteCaptionForThreads(videoTitle);
+}

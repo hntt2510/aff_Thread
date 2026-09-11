@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   DollarSign,
   ShoppingBag,
+  Video,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { label: "Posts", href: "/posts", icon: History },
   { label: "Monetization", href: "/monetization", icon: DollarSign },
   { label: "Shopee Deals", href: "/shopee", icon: ShoppingBag },
+  { label: "Trend Discovery", href: "/shopee?tab=TRENDS", icon: Video },
   { label: "Affiliate", href: "/affiliate", icon: Link2 },
   { label: "Media", href: "/media", icon: ImageIcon },
 ];
