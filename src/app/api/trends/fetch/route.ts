@@ -14,11 +14,12 @@ export async function POST(req: NextRequest) {
     }
 
     const { query, region = "VN", count = 20, minViews = 50000, minLikes = 2000 } = body;
+    const trimmedQuery = typeof query === "string" && query.trim() ? query.trim() : undefined;
 
     let candidates = [];
-    if (query && typeof query === "string" && query.trim()) {
+    if (trimmedQuery) {
       candidates = await tiktokTrendService.search(
-        query.trim(),
+        trimmedQuery,
         Number(count) || 20,
         region
       );
@@ -29,12 +30,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Enforce strict language & alphabet filtering before responding
+    candidates = tiktokTrendService.filterCandidatesByLanguageAndRegion(
+      candidates,
+      region,
+      trimmedQuery
+    );
+
     return NextResponse.json({
       success: true,
       count: candidates.length,
       data: candidates,
       candidates,
-      query: query || null,
+      query: trimmedQuery || null,
       region,
     });
   } catch (err: unknown) {

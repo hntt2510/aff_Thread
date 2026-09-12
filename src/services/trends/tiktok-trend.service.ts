@@ -50,6 +50,72 @@ import {
   ViralVideoItem,
 } from "./tikw-api.service";
 
+/**
+ * Non-target foreign alphabets regex:
+ * - Burmese / Myanmar: \u1000-\u109F, \uAA60-\uAA7F
+ * - Thai: \u0E00-\u0E7F
+ * - Khmer: \u1780-\u17FF
+ * - Arabic: \u0600-\u06FF
+ * - Cyrillic: \u0400-\u04FF
+ * - Chinese (CJK Ideographs): \u4E00-\u9FFF
+ */
+export const NON_TARGET_ALPHABETS_REGEX =
+  /[\u1000-\u109F\uAA60-\uAA7F\u0E00-\u0E7F\u1780-\u17FF\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]/;
+
+/**
+ * Vietnamese tone marks and diacritic vowels/consonants regex.
+ */
+export const VIETNAMESE_DIACRITICS_REGEX =
+  /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/;
+
+/**
+ * Common foreign Latin words (Indonesian, Malay, Tagalog, Spanish, etc.)
+ */
+export const FOREIGN_LATIN_STOPWORDS_REGEX =
+  /\b(?:untuk|yang|dari|banget|kulit|pencerah|rekomendasi|terbaik|wajah|ampuh|kalian|kamu|aku|adalah|bisa|ng|mga|para|ang|lahat|sa|may|na|hindi)\b/i;
+
+/**
+ * Common Vietnamese trend/shopping keywords used for Vietnamese affinity detection.
+ */
+export const VIETNAMESE_COMMON_WORDS = [
+  "review",
+  "đẹp",
+  "mua",
+  "xinh",
+  "hướng dẫn",
+  "săn sale",
+  "tóp tóp",
+  "dùng thử",
+  "chính hãng",
+  "giá rẻ",
+  "phối đồ",
+  "mỹ phẩm",
+  "đồ gia dụng",
+  "cả nhà",
+  "mọi người",
+  "cuốn",
+  "nha",
+  "nhé",
+  "siêu",
+  "cực",
+  "quá",
+  "xịn",
+  "chốt",
+  "trải nghiệm",
+  "đập hộp",
+  "unboxing",
+  "gợi ý",
+  "bí quyết",
+  "chia sẻ",
+  "thử thách",
+  "vụ việc",
+  "tai nạn",
+  "chuyện",
+  "hôm nay",
+  "skincare",
+  "decor",
+];
+
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
@@ -91,9 +157,12 @@ export class TiktokTrendService {
     // Use official TikW-API if API key is present and no custom endpoint override was specified
     if (!endpoint && this.tikwApi?.getApiKey()) {
       try {
-        const items = await this.tikwApi.fetchTrendingVideos(region, count);
+        const fetchCount = Math.min(Math.max(count * 2, 30), 50);
+        const items = await this.tikwApi.fetchTrendingVideos(region, fetchCount);
         const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
-        return this.rankAndFilterCandidates(candidates, minViews, minLikes);
+        const languageFiltered = this.filterCandidatesByLanguageAndRegion(candidates, region);
+        const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
+        return ranked.slice(0, count);
       } catch (err) {
         console.warn("TikW-API trending fetch failed, falling back to public endpoint:", err);
       }
@@ -105,6 +174,7 @@ export class TiktokTrendService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      const fetchCount = Math.min(Math.max(count * 2, 30), 50);
       const res = await fetch(publicEndpoint, {
         method: "POST",
         headers: {
@@ -114,7 +184,7 @@ export class TiktokTrendService {
         },
         body: new URLSearchParams({
           region,
-          count: String(count),
+          count: String(fetchCount),
         }),
         signal: controller.signal,
       });
@@ -132,7 +202,9 @@ export class TiktokTrendService {
         ? json.data.videos
         : [];
 
-      return this.processRawVideos(rawVideos, { region, minViews, minLikes });
+      const rawCandidates = this.processRawVideos(rawVideos, { region, minViews, minLikes });
+      const languageFiltered = this.filterCandidatesByLanguageAndRegion(rawCandidates, region);
+      return languageFiltered.slice(0, count);
     } catch {
       return [];
     }
@@ -157,9 +229,12 @@ export class TiktokTrendService {
     // Use official TikW-API if API key is present and no custom endpoint override was specified
     if (!endpoint && this.tikwApi?.getApiKey()) {
       try {
-        const items = await this.tikwApi.searchViralVideos(query.trim(), count);
+        const fetchCount = Math.min(Math.max(count * 2, 30), 50);
+        const items = await this.tikwApi.searchViralVideos(query.trim(), fetchCount);
         const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
-        return this.rankAndFilterCandidates(candidates, minViews, minLikes);
+        const languageFiltered = this.filterCandidatesByLanguageAndRegion(candidates, region, query.trim());
+        const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
+        return ranked.slice(0, count);
       } catch (err) {
         console.warn("TikW-API search failed, falling back to public endpoint:", err);
       }
@@ -171,6 +246,7 @@ export class TiktokTrendService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      const fetchCount = Math.min(Math.max(count * 2, 30), 50);
       const res = await fetch(publicEndpoint, {
         method: "POST",
         headers: {
@@ -180,7 +256,7 @@ export class TiktokTrendService {
         },
         body: new URLSearchParams({
           keywords: query.trim(),
-          count: String(count),
+          count: String(fetchCount),
         }),
         signal: controller.signal,
       });
@@ -198,7 +274,9 @@ export class TiktokTrendService {
         ? json.data
         : [];
 
-      return this.processRawVideos(rawVideos, { region, minViews, minLikes });
+      const rawCandidates = this.processRawVideos(rawVideos, { region, minViews, minLikes });
+      const languageFiltered = this.filterCandidatesByLanguageAndRegion(rawCandidates, region, query.trim());
+      return languageFiltered.slice(0, count);
     } catch {
       return [];
     }
@@ -320,6 +398,86 @@ export class TiktokTrendService {
     results.sort((a, b) => b.engagementScore - a.engagementScore);
 
     return results;
+  }
+
+  /**
+   * Filters candidates based on region language specifications:
+   * When region === "VN":
+   * 1. Exclude Non-Target Alphabets: Burmese/Myanmar, Thai, Khmer, Arabic, Cyrillic, Chinese.
+   * 2. Exclude purely foreign Latin languages (Indonesian, Tagalog, etc.) lacking Vietnamese markers.
+   * 3. Vietnamese Affinity Check:
+   *    If query is provided: The video title or tags must contain the keyword tokens
+   *    OR common Vietnamese diacritics/words.
+   *    Discard purely foreign-language videos when searching for Vietnam trends.
+   */
+  filterCandidatesByLanguageAndRegion(
+    candidates: ViralContentCandidate[],
+    region = "VN",
+    query?: string
+  ): ViralContentCandidate[] {
+    if (region !== "VN") {
+      return candidates;
+    }
+
+    const trimmedQuery = query ? query.trim() : "";
+
+    return candidates.filter((c) => {
+      const title = c.title || "";
+      const nickname = c.author?.nickname || "";
+      const uniqueId = c.author?.uniqueId || "";
+      const combined = `${title} ${nickname} ${uniqueId}`;
+
+      // 1. Exclude Non-Target Alphabets: Burmese, Thai, Khmer, Arabic, Cyrillic, Chinese
+      if (NON_TARGET_ALPHABETS_REGEX.test(combined)) {
+        return false;
+      }
+
+      // 2. Exclude purely foreign Latin languages without Vietnamese diacritics
+      if (
+        FOREIGN_LATIN_STOPWORDS_REGEX.test(title) &&
+        !VIETNAMESE_DIACRITICS_REGEX.test(title) &&
+        !VIETNAMESE_DIACRITICS_REGEX.test(nickname)
+      ) {
+        return false;
+      }
+
+      // 3. If no query is provided (trending feed), accept video without foreign non-target scripts
+      if (!trimmedQuery) {
+        return true;
+      }
+
+      // 4. Vietnamese Affinity Check when query is provided:
+      // 4a. Contains Vietnamese diacritics
+      if (VIETNAMESE_DIACRITICS_REGEX.test(title) || VIETNAMESE_DIACRITICS_REGEX.test(nickname)) {
+        return true;
+      }
+
+      // 4b. Contains Vietnamese tags or author suffix
+      if (/(?:#vn\b|#vietnam\b|#xuhuong\b|#xh\b|_vn\b)/i.test(combined)) {
+        return true;
+      }
+
+      // 4c. Contains common Vietnamese keywords
+      const lowerTitle = title.toLowerCase();
+      for (const word of VIETNAMESE_COMMON_WORDS) {
+        if (lowerTitle.includes(word.toLowerCase())) {
+          return true;
+        }
+      }
+
+      // 4d. Contains keyword tokens from the query
+      const queryTokens = trimmedQuery
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((tok) => tok.length >= 2);
+
+      const matchesToken = queryTokens.some((token) => lowerTitle.includes(token));
+      if (matchesToken) {
+        return true;
+      }
+
+      return false;
+    });
   }
 
   /**

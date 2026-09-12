@@ -232,4 +232,91 @@ describe("TiktokTrendService", () => {
       expect(processed[0].id).toBe("7400000001");
     });
   });
+
+  describe("Strict Language & Regional Content Filtering (filterCandidatesByLanguageAndRegion)", () => {
+    const createCandidate = (id: string, title: string, authorUniqueId = "user", authorNickname = "User"): ViralContentCandidate => ({
+      id,
+      title,
+      videoUrl: `https://tikwm.com/video/${id}.mp4`,
+      coverUrl: `https://tikwm.com/cover/${id}.jpg`,
+      stats: { views: 100000, likes: 5000, comments: 200, shares: 100 },
+      author: { uniqueId: authorUniqueId, nickname: authorNickname },
+      duration: 30,
+      region: "VN",
+      createdAt: Date.now(),
+      engagementScore: 5000,
+      suggestedThreadsCaption: title,
+    });
+
+    it("filters out videos containing Burmese / Myanmar characters (unicode range \\u1000-\\u109F, \\uAA60-\\uAA7F)", () => {
+      const candidates = [
+        createCandidate("vn_1", "Top 5 kem dưỡng ẩm bình dân đỉnh nhất"),
+        createCandidate("burmese_1", "မင်္ဂလာပါရှင် အသားအရေထိန်းသိမ်းမှု"),
+        createCandidate("burmese_2", "Skincare review မင်္ဂလာ"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_1");
+    });
+
+    it("filters out videos containing Thai characters (unicode range \\u0E00-\\u0E7F)", () => {
+      const candidates = [
+        createCandidate("vn_2", "Review nồi chiên không dầu dùng cực thích"),
+        createCandidate("thai_1", "รีวิวสกินแคร์ เกาหลีถูกและดี"),
+        createCandidate("thai_2", "เครื่องสำอางค์ยอดนิยม"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_2");
+    });
+
+    it("filters out videos containing Khmer, Arabic, Cyrillic, or Chinese scripts", () => {
+      const candidates = [
+        createCandidate("vn_3", "Serum phục hồi da mờ thâm nám xịn sò"),
+        createCandidate("khmer_1", "ការថែរក្សាស្បែកល្អ"),
+        createCandidate("arabic_1", "عناية بالبشرة روتين يومي"),
+        createCandidate("cyrillic_1", "Обзор лучшей косметики"),
+        createCandidate("chinese_1", "超好用的护肤品推荐"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_3");
+    });
+
+    it("discards purely foreign Latin languages (Indonesian stopwords) without Vietnamese markers during search", () => {
+      const candidates = [
+        createCandidate("vn_4", "Review serum trắng da cho học sinh sinh viên"),
+        createCandidate("indo_1", "Rekomendasi serum pencerah wajah terbaik untuk remaja"),
+        createCandidate("indo_2", "Skincare routine pagi malam yang ampuh banget buat kalian"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "skincare review");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_4");
+    });
+
+    it("retains authentic Vietnamese videos matching query tokens and tone diacritics", () => {
+      const candidates = [
+        createCandidate("vn_5", "Top 3 kem chống nắng kiềm dầu nâng tone cực đỉnh"),
+        createCandidate("foreign_no_vn", "Best summer sunscreens for glowing skin this year"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "kem chống nắng");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_5");
+    });
+
+    it("does not filter non-target scripts when querying other regions like Thailand (TH)", () => {
+      const candidates = [
+        createCandidate("thai_3", "รีวิวสกินแคร์ เกาหลีถูกและดี"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "TH");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("thai_3");
+    });
+  });
 });

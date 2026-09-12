@@ -89,6 +89,67 @@ describe("Trend Discovery & Bait-Post Draft Seeding", () => {
       expect(json.data[0].id).toBe("vid_202");
     });
 
+    it("passes search query trimmed and strictly filters out foreign Burmese/Thai videos", async () => {
+      const mixedResults = [
+        {
+          id: "vid_vn",
+          title: "Skincare review cực xịn cho da dầu mụn mùa hè",
+          videoUrl: "https://api.tikwmapi.com/vn.mp4",
+          coverUrl: "https://api.tikwmapi.com/vn.jpg",
+          stats: { views: 90000, likes: 6000, comments: 200, shares: 100 },
+          author: { uniqueId: "skincare_vn", nickname: "Góc Làm Đẹp" },
+          duration: 30,
+          region: "VN",
+          createdAt: Date.now(),
+          engagementScore: 7000,
+          suggestedThreadsCaption: "Gợi ý skincare...",
+        },
+        {
+          id: "vid_burmese",
+          title: "မင်္ဂလာပါ skincare review myanmar",
+          videoUrl: "https://api.tikwmapi.com/burmese.mp4",
+          coverUrl: "https://api.tikwmapi.com/burmese.jpg",
+          stats: { views: 85000, likes: 5500, comments: 150, shares: 90 },
+          author: { uniqueId: "beauty_mm", nickname: "မင်္ဂလာ" },
+          duration: 25,
+          region: "VN",
+          createdAt: Date.now(),
+          engagementScore: 6500,
+          suggestedThreadsCaption: "Burmese caption...",
+        },
+        {
+          id: "vid_thai",
+          title: "รีวิว skincare review bangkok",
+          videoUrl: "https://api.tikwmapi.com/thai.mp4",
+          coverUrl: "https://api.tikwmapi.com/thai.jpg",
+          stats: { views: 95000, likes: 7000, comments: 300, shares: 120 },
+          author: { uniqueId: "thai_beauty", nickname: "สวัสดี" },
+          duration: 35,
+          region: "VN",
+          createdAt: Date.now(),
+          engagementScore: 8000,
+          suggestedThreadsCaption: "Thai caption...",
+        },
+      ];
+
+      const searchSpy = vi
+        .spyOn(tiktokTrendService, "search")
+        .mockResolvedValueOnce(mixedResults as any);
+
+      const req = createMockRequest({ query: "skincare review  ", region: "VN", count: 20 });
+      const res = await fetchTrendsHandler(req);
+      const json = await res.json();
+
+      expect(searchSpy).toHaveBeenCalledWith("skincare review", 20, "VN");
+      expect(res.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(json.query).toBe("skincare review");
+      expect(json.count).toBe(1);
+      expect(json.data[0].id).toBe("vid_vn");
+      expect(json.data.some((v: any) => v.id === "vid_burmese")).toBe(false);
+      expect(json.data.some((v: any) => v.id === "vid_thai")).toBe(false);
+    });
+
     it("returns HTTP 500 with sanitized error message if service fails", async () => {
       vi.spyOn(tiktokTrendService, "fetchTrending").mockRejectedValueOnce(
         new Error("Connection reset by peer")

@@ -54,8 +54,8 @@ export interface MatchedProductDraft {
 }
 
 export default function TrendDiscoveryTab() {
-  const [query, setQuery] = useState("");
-  const [region, setRegion] = useState("VN");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRegion, setSelectedRegion] = useState("VN");
   const [candidates, setCandidates] = useState<ViralContentCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,21 +98,37 @@ export default function TrendDiscoveryTab() {
 
   // Fetch trending or searched videos
   const fetchViralVideos = useCallback(
-    async (searchQuery = query, targetRegion = region) => {
+    async (overrideQuery?: string, overrideRegion?: string) => {
+      const q = overrideQuery !== undefined ? overrideQuery : searchQuery;
+      const r = overrideRegion !== undefined ? overrideRegion : selectedRegion;
+      const trimmedQuery = (q || "").trim();
+
       setLoading(true);
       setError(null);
       setHasSearched(true);
       try {
+        const bodyPayload: {
+          query?: string;
+          region: string;
+          count: number;
+          minViews: number;
+          minLikes: number;
+        } = {
+          region: r || "VN",
+          count: 20,
+          minViews: 40000,
+          minLikes: 1500,
+        };
+
+        // When user has typed text, send it trimmed. Do NOT send null or empty string.
+        if (trimmedQuery) {
+          bodyPayload.query = trimmedQuery;
+        }
+
         const res = await fetch("/api/trends/fetch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: searchQuery.trim() || undefined,
-            region: targetRegion,
-            count: 24,
-            minViews: 40000,
-            minLikes: 1500,
-          }),
+          body: JSON.stringify(bodyPayload),
         });
 
         const data = await res.json();
@@ -127,7 +143,7 @@ export default function TrendDiscoveryTab() {
         setLoading(false);
       }
     },
-    [query, region]
+    [searchQuery, selectedRegion]
   );
 
   // Auto-fetch initial trending list on mount
@@ -289,9 +305,9 @@ export default function TrendDiscoveryTab() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && fetchViralVideos(query, region)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && fetchViralVideos(searchQuery, selectedRegion)}
               placeholder="Nhập từ khóa tìm kiếm (VD: skincare, đồ gia dụng, review, tai nghe bluetooth)..."
               className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all"
             />
@@ -299,10 +315,11 @@ export default function TrendDiscoveryTab() {
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <select
-              value={region}
+              value={selectedRegion}
               onChange={(e) => {
-                setRegion(e.target.value);
-                fetchViralVideos(query, e.target.value);
+                const newRegion = e.target.value;
+                setSelectedRegion(newRegion);
+                fetchViralVideos(searchQuery, newRegion);
               }}
               className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-purple-500"
             >
@@ -313,7 +330,7 @@ export default function TrendDiscoveryTab() {
             </select>
 
             <button
-              onClick={() => fetchViralVideos(query, region)}
+              onClick={() => fetchViralVideos(searchQuery, selectedRegion)}
               disabled={loading}
               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm shadow-sm transition-all"
             >
@@ -337,12 +354,12 @@ export default function TrendDiscoveryTab() {
             <button
               key={chip.label}
               onClick={() => {
-                setQuery(chip.query);
-                setRegion(chip.region);
+                setSearchQuery(chip.query);
+                setSelectedRegion(chip.region);
                 fetchViralVideos(chip.query, chip.region);
               }}
               className={`px-2.5 py-1 rounded-lg border transition-colors ${
-                query === chip.query
+                searchQuery === chip.query
                   ? "bg-purple-50 border-purple-300 text-purple-700 font-bold"
                   : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
               }`}
