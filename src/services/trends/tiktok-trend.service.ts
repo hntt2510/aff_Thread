@@ -119,10 +119,249 @@ export const VIETNAMESE_COMMON_WORDS = [
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
+/**
+ * Normalizes text by removing diacritics, special symbols, and extra spaces.
+ */
+export function normalizeSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Extracts core search terms and category expansions for strict keyword relevance matching.
+ */
+export function getQueryCoreTerms(query: string): string[] {
+  const normalizedQuery = normalizeSearchText(query);
+  const words = normalizedQuery.split(" ").filter((w) => w.length >= 2);
+
+  // Common filler words that shouldn't match on their own
+  const stopWords = new Set([
+    "nhung",
+    "cac",
+    "cho",
+    "cua",
+    "va",
+    "la",
+    "co",
+    "hay",
+    "cuc",
+    "nhat",
+    "sieu",
+    "that",
+    "voi",
+    "trong",
+    "tren",
+    "review",
+  ]);
+
+  let meaningfulWords = words.filter((w) => !stopWords.has(w));
+  if (meaningfulWords.length === 0) {
+    meaningfulWords = words;
+  }
+
+  const terms = new Set<string>([query.trim().toLowerCase(), normalizedQuery]);
+  meaningfulWords.forEach((w) => terms.add(w));
+
+  // Beauty / Skincare / Cosmetics expansions
+  const isBeauty =
+    /skincare|skin|da\b|my pham|serum|kem|chong nang|son|tri mun|duong am|mat na/.test(
+      normalizedQuery
+    );
+  if (isBeauty) {
+    [
+      "skincare",
+      "skin care",
+      "serum",
+      "kem",
+      "my pham",
+      "mỹ phẩm",
+      "chong nang",
+      "chống nắng",
+      "kem chong nang",
+      "kem chống nắng",
+      "sunscreen",
+      "toner",
+      "tay trang",
+      "tẩy trang",
+      "retinol",
+      "bha",
+      "aha",
+      "duong am",
+      "dưỡng ẩm",
+      "tri mun",
+      "trị mụn",
+      "son",
+      "lipstick",
+      "cushion",
+      "phan",
+      "phấn",
+      "mat na",
+      "mặt nạ",
+      "nuoc hoa",
+      "nước hoa",
+    ].forEach((t) => terms.add(t));
+  }
+
+  // Home / Kitchen / Household appliances (Gia dụng)
+  const isHome =
+    /gia dung|bep|noi\b|chao\b|nha cua|don dep|tien ich/.test(normalizedQuery);
+  if (isHome) {
+    [
+      "do gia dung",
+      "đồ gia dụng",
+      "gia dung",
+      "gia dụng",
+      "noi",
+      "nồi",
+      "chao",
+      "chảo",
+      "bep",
+      "bếp",
+      "may hut bui",
+      "máy hút bụi",
+      "noi chien",
+      "nồi chiên",
+      "tien ich",
+      "tiện ích",
+      "thong minh",
+      "thông minh",
+      "decor",
+      "nha bep",
+      "nhà bếp",
+      "don dep",
+      "dọn dẹp",
+    ].forEach((t) => terms.add(t));
+  }
+
+  // Tech / Electronics / Gadgets (Công nghệ)
+  const isTech =
+    /cong nghe|phu kien|tai nghe|dien thoai|laptop|sac\b|ban phim|chuot/.test(
+      normalizedQuery
+    );
+  if (isTech) {
+    [
+      "phu kien cong nghe",
+      "phụ kiện công nghệ",
+      "cong nghe",
+      "công nghệ",
+      "phu kien",
+      "phụ kiện",
+      "tai nghe",
+      "bluetooth",
+      "earbuds",
+      "headphone",
+      "dien thoai",
+      "điện thoại",
+      "iphone",
+      "samsung",
+      "laptop",
+      "ban phim",
+      "bàn phím",
+      "chuot",
+      "chuột",
+      "sac",
+      "sạc",
+      "cap sac",
+      "cáp sạc",
+      "pin du phong",
+      "pin dự phòng",
+      "loa",
+      "smartwatch",
+    ].forEach((t) => terms.add(t));
+  }
+
+  // Fashion / OOTD (Thời trang)
+  const isFashion =
+    /thoi trang|phoi do|outfit|quan ao|vay\b|dam\b|giay\b|tui\b/.test(
+      normalizedQuery
+    );
+  if (isFashion) {
+    [
+      "thoi trang",
+      "thời trang",
+      "phoi do",
+      "phối đồ",
+      "outfit",
+      "quan ao",
+      "quần áo",
+      "quan",
+      "quần",
+      "ao",
+      "áo",
+      "vay",
+      "váy",
+      "dam",
+      "đầm",
+      "giay",
+      "giày",
+      "sneaker",
+      "tui",
+      "túi",
+      "ootd",
+      "style",
+      "croptop",
+      "blazer",
+    ].forEach((t) => terms.add(t));
+  }
+
+  // Also add unspaced variants for multi-word phrases (for hashtags like #dogiadung, #kemchongnang, #phoido)
+  const phrases = Array.from(terms);
+  for (const p of phrases) {
+    if (p.includes(" ")) {
+      const unspaced = p.replace(/\s+/g, "");
+      if (unspaced.length >= 4) {
+        terms.add(unspaced);
+      }
+    }
+  }
+
+  return Array.from(terms);
+}
+
+/**
+ * Checks whether text matches any of the core search terms using regex word boundaries.
+ */
+export function matchesQueryRelevance(text: string, terms: string[]): boolean {
+  if (!text || !terms || terms.length === 0) return false;
+  const normText = normalizeSearchText(text);
+  const originalLower = text.toLowerCase();
+
+  for (const term of terms) {
+    const normTerm = normalizeSearchText(term);
+    if (!normTerm) continue;
+
+    // Escape special regex characters in term
+    const escapedNorm = normTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedOrig = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Use word boundaries so that "gia" does not match "giang", "ao" does not match "chao", etc.
+    const normRegex = new RegExp(
+      `(^|\\s|[.,!?;:/#-])${escapedNorm}($|\\s|[.,!?;:/#-])`,
+      "i"
+    );
+    const origRegex = new RegExp(
+      `(^|\\s|[.,!?;:/#-])${escapedOrig}($|\\s|[.,!?;:/#-])`,
+      "i"
+    );
+
+    if (normRegex.test(normText) || origRegex.test(originalLower)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export class TiktokTrendService {
   readonly version = "v1.0.0-trend-discovery";
   private readonly feedListEndpoint = "https://www.tikwm.com/api/feed/list";
-  private readonly feedSearchEndpoint = "https://www.tikwm.com/api/feed/search/";
+  private readonly feedSearchEndpoint = "https://www.tikwm.com/api/feed/search";
   private tikwApi: TikWApiService;
 
   constructor(tikwApi: TikWApiService = tikWApiService) {
@@ -230,7 +469,12 @@ export class TiktokTrendService {
     if (!endpoint && this.tikwApi?.getApiKey()) {
       try {
         const fetchCount = Math.min(Math.max(count * 2, 30), 50);
-        const items = await this.tikwApi.searchViralVideos(query.trim(), fetchCount);
+        const items = await this.tikwApi.searchViralVideos(
+          query.trim(),
+          fetchCount,
+          region,
+          0
+        );
         const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
         const languageFiltered = this.filterCandidatesByLanguageAndRegion(candidates, region, query.trim());
         const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
@@ -257,6 +501,8 @@ export class TiktokTrendService {
         body: new URLSearchParams({
           keywords: query.trim(),
           count: String(fetchCount),
+          region: region || "VN",
+          cursor: "0",
         }),
         signal: controller.signal,
       });
@@ -447,36 +693,26 @@ export class TiktokTrendService {
       }
 
       // 4. Vietnamese Affinity Check when query is provided:
-      // 4a. Contains Vietnamese diacritics
-      if (VIETNAMESE_DIACRITICS_REGEX.test(title) || VIETNAMESE_DIACRITICS_REGEX.test(nickname)) {
-        return true;
+      // Candidate must have some Vietnamese affinity marker (diacritics, VN tags, or common Vietnamese words)
+      const hasVietnameseAffinity =
+        VIETNAMESE_DIACRITICS_REGEX.test(title) ||
+        VIETNAMESE_DIACRITICS_REGEX.test(nickname) ||
+        /(?:#vn\b|#vietnam\b|#xuhuong\b|#xh\b|_vn\b)/i.test(combined) ||
+        VIETNAMESE_COMMON_WORDS.some((word) => title.toLowerCase().includes(word.toLowerCase()));
+
+      if (!hasVietnameseAffinity) {
+        return false;
       }
 
-      // 4b. Contains Vietnamese tags or author suffix
-      if (/(?:#vn\b|#vietnam\b|#xuhuong\b|#xh\b|_vn\b)/i.test(combined)) {
-        return true;
+      // 5. Strict Query Relevance Check:
+      // Video title or combined metadata MUST match query tokens or category expansions.
+      // Rejects irrelevant generic comedy, news/military, or remix songs when searching specific queries.
+      const coreTerms = getQueryCoreTerms(trimmedQuery);
+      if (!matchesQueryRelevance(combined, coreTerms)) {
+        return false;
       }
 
-      // 4c. Contains common Vietnamese keywords
-      const lowerTitle = title.toLowerCase();
-      for (const word of VIETNAMESE_COMMON_WORDS) {
-        if (lowerTitle.includes(word.toLowerCase())) {
-          return true;
-        }
-      }
-
-      // 4d. Contains keyword tokens from the query
-      const queryTokens = trimmedQuery
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((tok) => tok.length >= 2);
-
-      const matchesToken = queryTokens.some((token) => lowerTitle.includes(token));
-      if (matchesToken) {
-        return true;
-      }
-
-      return false;
+      return true;
     });
   }
 

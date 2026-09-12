@@ -202,6 +202,13 @@ describe("TiktokTrendService", () => {
       });
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [calledUrl, callInit] = fetchSpy.mock.calls[0];
+      expect(calledUrl).toBe("https://www.tikwm.com/api/feed/search");
+      const bodyParams = (callInit?.body as URLSearchParams).toString();
+      expect(bodyParams).toContain("keywords=torriden+review");
+      expect(bodyParams).toContain("region=VN");
+      expect(bodyParams).toContain("cursor=0");
+
       expect(candidates).toHaveLength(1);
       expect(candidates[0].id).toBe("7300000001");
       expect(candidates[0].title).toBe("Review serum Torriden sau 14 ngày dùng");
@@ -309,9 +316,64 @@ describe("TiktokTrendService", () => {
       expect(filtered[0].id).toBe("vn_5");
     });
 
+    it("strictly rejects irrelevant viral videos (comedy, military, remix songs) with Vietnamese diacritics when searching 'skincare review'", () => {
+      const candidates = [
+        createCandidate("skincare_1", "Top 5 kem dưỡng ẩm bình dân đỉnh nhất cho học sinh"),
+        createCandidate("skincare_2", "Review serum Torriden phục hồi da sau 14 ngày dùng"),
+        createCandidate("skincare_3", "Top 3 kem chống nắng kiềm dầu nâng tone cực đỉnh"),
+        createCandidate("comedy_1", "Hài Trường Giang cười bể bụng tại 2 Ngày 1 Đêm"),
+        createCandidate("military_1", "Chiến đấu cơ Su-30 bay lượn trên bầu trời"),
+        createCandidate("remix_1", "Nhạc remix cực căng bass đập tức ngực bay lắc"),
+        createCandidate("sub_1", "Trực thăng săn ngầm Ka-28 Việt Nam cất cánh"),
+        createCandidate("movie_1", "Review phim điện ảnh hot nhất rạp tuần này"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "skincare review");
+      expect(filtered).toHaveLength(3);
+      const keptIds = filtered.map((c) => c.id);
+      expect(keptIds).toEqual(["skincare_1", "skincare_2", "skincare_3"]);
+      expect(keptIds).not.toContain("comedy_1");
+      expect(keptIds).not.toContain("military_1");
+      expect(keptIds).not.toContain("remix_1");
+      expect(keptIds).not.toContain("sub_1");
+      expect(keptIds).not.toContain("movie_1");
+    });
+
+    it("matches domain keywords and hashtag variants for 'đồ gia dụng thông minh'", () => {
+      const candidates = [
+        createCandidate("home_1", "5 món đồ gia dụng thông minh cho căn bếp"),
+        createCandidate("home_2", "Review nồi chiên không dầu dùng cực thích"),
+        createCandidate("home_3", "Clip unbox #dogiadung siêu tiện lợi"),
+        createCandidate("irrelevant_1", "Hài Trường Giang đi ăn cưới"),
+        createCandidate("irrelevant_2", "Review son môi Merzy"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "đồ gia dụng thông minh");
+      expect(filtered).toHaveLength(3);
+      const keptIds = filtered.map((c) => c.id);
+      expect(keptIds).toEqual(["home_1", "home_2", "home_3"]);
+      expect(keptIds).not.toContain("irrelevant_1");
+      expect(keptIds).not.toContain("irrelevant_2");
+    });
+
+    it("matches domain keywords and hashtag variants for 'phụ kiện công nghệ hay'", () => {
+      const candidates = [
+        createCandidate("tech_1", "Top 3 tai nghe bluetooth chống ồn giá rẻ"),
+        createCandidate("tech_2", "Củ sạc nhanh 65W cho iPhone và laptop"),
+        createCandidate("tech_3", "Món đồ #phukiencongnghe không thể thiếu"),
+        createCandidate("irrelevant_3", "Chiến đấu cơ Su-30 thao diễn"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "phụ kiện công nghệ hay");
+      expect(filtered).toHaveLength(3);
+      const keptIds = filtered.map((c) => c.id);
+      expect(keptIds).toEqual(["tech_1", "tech_2", "tech_3"]);
+      expect(keptIds).not.toContain("irrelevant_3");
+    });
+
     it("does not filter non-target scripts when querying other regions like Thailand (TH)", () => {
       const candidates = [
-        createCandidate("thai_3", "รีวิวสกินแคร์ เกาหลีถูกและดี"),
+        createCandidate("thai_3", "รีวิวสกินแคร์ เกาหลีถูก và ดี"),
       ];
 
       const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "TH");

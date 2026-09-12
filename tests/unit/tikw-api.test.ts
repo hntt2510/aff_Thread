@@ -210,6 +210,8 @@ describe("TikWApiService", () => {
       const bodyParam = (fetchSpy.mock.calls[0][1]?.body as URLSearchParams).toString();
       expect(bodyParam).toContain("keywords=anessa+review");
       expect(bodyParam).toContain("count=15");
+      expect(bodyParam).toContain("region=VN");
+      expect(bodyParam).toContain("cursor=0");
 
       expect(items).toHaveLength(1);
       expect(items[0].id).toBe("7330000003");

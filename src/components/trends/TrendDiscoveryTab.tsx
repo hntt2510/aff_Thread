@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Video,
   Play,
@@ -146,9 +146,14 @@ export default function TrendDiscoveryTab() {
     [searchQuery, selectedRegion]
   );
 
-  // Auto-fetch initial trending list on mount
+  const initialFetchedRef = useRef(false);
+
+  // Auto-fetch initial trending list on mount (runs only once, not on search query keystrokes)
   useEffect(() => {
-    fetchViralVideos("", "VN");
+    if (!initialFetchedRef.current) {
+      initialFetchedRef.current = true;
+      fetchViralVideos("", "VN");
+    }
   }, [fetchViralVideos]);
 
   // Open "Use as Bait Post" modal and prepare suggestions

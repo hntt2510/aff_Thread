@@ -103,11 +103,18 @@ export class TikWApiService {
    * Searches viral videos by keyword or hashtag.
    * Calls endpoint: /api/feed/search
    */
-  async searchViralVideos(keyword: string, count = 20): Promise<ViralVideoItem[]> {
+  async searchViralVideos(
+    keyword: string,
+    count = 20,
+    region = "VN",
+    cursor = 0
+  ): Promise<ViralVideoItem[]> {
     const endpoint = `${this.baseUrl}/api/feed/search`;
     const params = new URLSearchParams({
       keywords: keyword.trim(),
       count: String(count),
+      region: region || "VN",
+      cursor: String(cursor),
     });
 
     const data = await this.request(endpoint, params);
