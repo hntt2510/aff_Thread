@@ -265,6 +265,30 @@ describe("TikWApiService", () => {
       expect(items[2].views).toBe(50000);
     });
 
+    it("deduplicates video items with identical IDs in normalizeVideos", async () => {
+      const duplicateFixture = {
+        code: 0,
+        msg: "success",
+        data: {
+          videos: [
+            { video_id: "duplicate_id", title: "Clip A", play: "/a.mp4", play_count: 500000 },
+            { video_id: "duplicate_id", title: "Clip A duplicate", play: "/a.mp4", play_count: 500000 },
+            { video_id: "unique_id", title: "Clip B", play: "/b.mp4", play_count: 300000 },
+          ],
+        },
+      };
+
+      const service = new TikWApiService({ apiKey: "test_key" });
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => duplicateFixture,
+      } as any);
+
+      const items = await service.searchViralVideos("test");
+      expect(items).toHaveLength(2);
+      expect(items.map((it) => it.id)).toEqual(["duplicate_id", "unique_id"]);
+    });
+
     it("formats views, likes, shares cleanly for UI display (e.g. 2.5M, 180k)", () => {
       expect(formatMetricNumber(2500000)).toBe("2.5M");
       expect(formatMetricNumber(1000000)).toBe("1M");
@@ -439,10 +463,10 @@ describe("TikWApiService", () => {
           data: [
             {
               video_id: "fallback_video_1",
-              title: "Fallback video item",
+              title: "Clip triệu view thịnh hành cực cuốn",
               play: "https://v16.tiktokcdn.com/fallback.mp4",
               cover: "https://p16.tiktokcdn.com/fallback.jpg",
-              play_count: 60000,
+              play_count: 150000,
               digg_count: 3000,
             },
           ],

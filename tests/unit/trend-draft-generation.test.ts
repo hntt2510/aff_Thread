@@ -82,7 +82,7 @@ describe("Trend Discovery & Bait-Post Draft Seeding", () => {
       const res = await fetchTrendsHandler(req);
       const json = await res.json();
 
-      expect(searchSpy).toHaveBeenCalledWith("nồi chiên không dầu", 15, "VN");
+      expect(searchSpy).toHaveBeenCalledWith("nồi chiên không dầu", 15, "VN", 100000, 2000);
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
       expect(json.count).toBe(1);
@@ -140,7 +140,7 @@ describe("Trend Discovery & Bait-Post Draft Seeding", () => {
       const res = await fetchTrendsHandler(req);
       const json = await res.json();
 
-      expect(searchSpy).toHaveBeenCalledWith("skincare review", 20, "VN");
+      expect(searchSpy).toHaveBeenCalledWith("skincare review", 20, "VN", 100000, 2000);
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
       expect(json.query).toBe("skincare review");

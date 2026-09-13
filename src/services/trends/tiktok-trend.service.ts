@@ -30,7 +30,7 @@ export interface ViralContentCandidate {
 export interface FetchTrendOptions {
   region?: string; // default "VN"
   count?: number; // default 20
-  minViews?: number; // default 50000
+  minViews?: number; // default 100000
   minLikes?: number; // default 2000
   endpoint?: string;
 }
@@ -39,8 +39,8 @@ export interface SearchTrendOptions {
   query: string;
   region?: string;
   count?: number;
-  minViews?: number;
-  minLikes?: number;
+  minViews?: number; // default 100000
+  minLikes?: number; // default 2000
   endpoint?: string;
 }
 
@@ -52,15 +52,25 @@ import {
 
 /**
  * Non-target foreign alphabets regex:
- * - Burmese / Myanmar: \u1000-\u109F, \uAA60-\uAA7F
+ * - Burmese / Myanmar: \u1000-\u109F, \uAA60-\uAA7F, \uA9E0-\uA9FE
  * - Thai: \u0E00-\u0E7F
- * - Khmer: \u1780-\u17FF
- * - Arabic: \u0600-\u06FF
- * - Cyrillic: \u0400-\u04FF
- * - Chinese (CJK Ideographs): \u4E00-\u9FFF
+ * - Lao: \u0E80-\u0EFF
+ * - Khmer: \u1780-\u17FF, \u19E0-\u19FF
+ * - Arabic / Persian / Urdu: \u0600-\u06FF, \u0750-\u077F, \u08A0-\u08FF, \uFB50-\uFDFF, \uFE70-\uFEFF
+ * - Cyrillic: \u0400-\u04FF, \u0500-\u052F
+ * - Chinese (CJK Ideographs): \u4E00-\u9FFF, \u3400-\u4DBF, \uF900-\uFAFF
+ * - Japanese: \u3040-\u309F, \u30A0-\u30FF, \u31F0-\u31FF
+ * - Korean: \uAC00-\uD7AF, \u1100-\u11FF, \u3130-\u318F
+ * - Devanagari / Indic: \u0900-\u097F, \u0980-\u09FF, \u0B80-\u0BFF, \u0C00-\u0C7F
  */
 export const NON_TARGET_ALPHABETS_REGEX =
-  /[\u1000-\u109F\uAA60-\uAA7F\u0E00-\u0E7F\u1780-\u17FF\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]/;
+  /[\u1000-\u109F\uAA60-\uAA7F\uA9E0-\uA9FE\u0E00-\u0E7F\u0E80-\u0EFF\u1780-\u17FF\u19E0-\u19FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0400-\u04FF\u0500-\u052F\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u0900-\u097F\u0980-\u09FF\u0B80-\u0BFF\u0C00-\u0C7F]/;
+
+/**
+ * Generic engagement / viral hashtags without topical or Vietnamese meaning.
+ */
+export const GENERIC_TAGS_REGEX =
+  /#(?:fyp|foryou|foryoupage|viral|xuhuong|xh|trend|trending|tiktok|duet|capcut|hot|dance|music|funny|meme|video|xyzbca|fpy|xhtiktok)\b/gi;
 
 /**
  * Vietnamese tone marks and diacritic vowels/consonants regex.
@@ -112,8 +122,61 @@ export const VIETNAMESE_COMMON_WORDS = [
   "tai nạn",
   "chuyện",
   "hôm nay",
-  "skincare",
-  "decor",
+];
+
+/**
+ * Distinctive Vietnamese unaccented keywords (không dấu) that do not collide with English stopwords.
+ */
+export const VIETNAMESE_UNACCENTED_KEYWORDS = [
+  "viet nam",
+  "vietnam",
+  "xuhuong",
+  "san sale",
+  "chinh hang",
+  "gia re",
+  "phoi do",
+  "my pham",
+  "gia dung",
+  "do gia dung",
+  "ca nha",
+  "moi nguoi",
+  "trai nghiem",
+  "dap hop",
+  "goi y",
+  "bi quyet",
+  "chia se",
+  "thu thach",
+  "vu viec",
+  "tai nan",
+  "chuyen",
+  "hom nay",
+  "hoc sinh",
+  "sinh vien",
+  "doi song",
+  "truong giang",
+  "2 ngay 1 dem",
+  "tran thanh",
+  "hieuthuhai",
+  "giam gia",
+  "chot don",
+  "huong dan",
+  "an vat",
+  "di choi",
+  "di hoc",
+  "cuon",
+  "nha",
+  "nhe",
+  "xinh",
+  "sieu",
+  "cuc",
+  "xin",
+  "chot",
+  "khong",
+  "chua",
+  "duoc",
+  "nguoi",
+  "tui",
+  "minh",
 ];
 
 const DEFAULT_USER_AGENT =
@@ -414,15 +477,42 @@ export class TiktokTrendService {
   /**
    * Convenience alias for fetching regional trending videos.
    */
-  async fetchTrending(region = "VN", count = 20): Promise<ViralContentCandidate[]> {
-    return this.fetchTrendingVideos({ region, count });
+  async fetchTrending(
+    region = "VN",
+    count = 20,
+    minViews = 100000,
+    minLikes = 2000
+  ): Promise<ViralContentCandidate[]> {
+    return this.fetchTrendingVideos({ region, count, minViews, minLikes });
   }
 
   /**
    * Convenience alias for searching viral videos.
    */
-  async search(query: string, count = 20, region = "VN"): Promise<ViralContentCandidate[]> {
-    return this.searchViralVideos({ query, count, region });
+  async search(
+    query: string,
+    count = 20,
+    region = "VN",
+    minViews = 100000,
+    minLikes = 2000
+  ): Promise<ViralContentCandidate[]> {
+    return this.searchViralVideos({ query, count, region, minViews, minLikes });
+  }
+
+  /**
+   * Deduplicates candidates by video ID.
+   */
+  deduplicateCandidates(candidates: ViralContentCandidate[]): ViralContentCandidate[] {
+    if (!candidates || !Array.isArray(candidates)) return [];
+    const seen = new Set<string>();
+    const unique: ViralContentCandidate[] = [];
+    for (const c of candidates) {
+      const id = String(c.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      unique.push(c);
+    }
+    return unique;
   }
 
   /**
@@ -432,7 +522,7 @@ export class TiktokTrendService {
   async fetchTrendingVideos(options?: FetchTrendOptions): Promise<ViralContentCandidate[]> {
     const region = options?.region || "VN";
     const count = options?.count || 20;
-    const minViews = options?.minViews ?? 50000;
+    const minViews = options?.minViews ?? 100000;
     const minLikes = options?.minLikes ?? 2000;
     const endpoint = options?.endpoint;
 
@@ -444,7 +534,7 @@ export class TiktokTrendService {
         const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
         const languageFiltered = this.filterCandidatesByLanguageAndRegion(candidates, region);
         const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
-        return ranked.slice(0, count);
+        return this.deduplicateCandidates(ranked.slice(0, count));
       } catch (err) {
         console.warn("TikW-API trending fetch failed, falling back to public endpoint:", err);
       }
@@ -486,7 +576,8 @@ export class TiktokTrendService {
 
       const rawCandidates = this.processRawVideos(rawVideos, { region, minViews, minLikes });
       const languageFiltered = this.filterCandidatesByLanguageAndRegion(rawCandidates, region);
-      return languageFiltered.slice(0, count);
+      const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
+      return this.deduplicateCandidates(ranked.slice(0, count));
     } catch {
       return [];
     }
@@ -504,7 +595,7 @@ export class TiktokTrendService {
 
     const count = options.count || 20;
     const region = options.region || "VN";
-    const minViews = options.minViews ?? 50000;
+    const minViews = options.minViews ?? 100000;
     const minLikes = options.minLikes ?? 2000;
     const endpoint = options.endpoint;
 
@@ -521,7 +612,7 @@ export class TiktokTrendService {
         const candidates = items.map((it) => this.mapViralVideoItemToCandidate(it, region));
         const languageFiltered = this.filterCandidatesByLanguageAndRegion(candidates, region, query.trim());
         const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
-        return ranked.slice(0, count);
+        return this.deduplicateCandidates(ranked.slice(0, count));
       } catch (err) {
         console.warn("TikW-API search failed, falling back to public endpoint:", err);
       }
@@ -565,7 +656,8 @@ export class TiktokTrendService {
 
       const rawCandidates = this.processRawVideos(rawVideos, { region, minViews, minLikes });
       const languageFiltered = this.filterCandidatesByLanguageAndRegion(rawCandidates, region, query.trim());
-      return languageFiltered.slice(0, count);
+      const ranked = this.rankAndFilterCandidates(languageFiltered, minViews, minLikes);
+      return this.deduplicateCandidates(ranked.slice(0, count));
     } catch {
       return [];
     }
@@ -581,10 +673,12 @@ export class TiktokTrendService {
     if (!rawVideos || !Array.isArray(rawVideos)) return [];
 
     const candidates: ViralContentCandidate[] = [];
+    const seenIds = new Set<string>();
 
     for (const v of rawVideos) {
       const id = String(v.video_id ?? v.id ?? "").trim();
-      if (!id) continue;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
 
       const rawPlay = v.play || v.wmplay;
       if (!rawPlay) continue;
@@ -668,23 +762,25 @@ export class TiktokTrendService {
   }
 
   /**
-   * Filters candidates by minimal engagement thresholds and sorts descending by engagement score.
+   * Filters candidates by minimal engagement thresholds and sorts descending by views and engagement score.
    */
   rankAndFilterCandidates(
     candidates: ViralContentCandidate[],
     minViews: number,
     minLikes: number
   ): ViralContentCandidate[] {
-    // Filter by minimal engagement: views >= minViews OR likes >= minLikes
-    const filtered = candidates.filter(
-      (c) => c.stats.views >= minViews || c.stats.likes >= minLikes
-    );
+    // Filter strictly by minimal views threshold
+    const filtered = candidates.filter((c) => c.stats.views >= minViews);
 
     // If filtering eliminates all items (e.g. narrow search), fallback to top candidates
     const results = filtered.length > 0 ? filtered : candidates;
 
-    // Sort descending by engagement score
-    results.sort((a, b) => b.engagementScore - a.engagementScore);
+    // Sort descending by views, then engagement score
+    results.sort(
+      (a, b) =>
+        (b.stats.views || 0) - (a.stats.views || 0) ||
+        b.engagementScore - a.engagementScore
+    );
 
     return results;
   }
@@ -692,12 +788,14 @@ export class TiktokTrendService {
   /**
    * Filters candidates based on region language specifications:
    * When region === "VN":
-   * 1. Exclude Non-Target Alphabets: Burmese/Myanmar, Thai, Khmer, Arabic, Cyrillic, Chinese.
+   * 1. Exclude Non-Target Alphabets on title, author nickname, and uniqueId:
+   *    Burmese, Thai, Lao, Khmer, Arabic, Cyrillic, Chinese, Japanese, Korean, Indic.
    * 2. Exclude purely foreign Latin languages (Indonesian, Tagalog, etc.) lacking Vietnamese markers.
-   * 3. Vietnamese Affinity Check:
-   *    If query is provided: The video title or tags must contain the keyword tokens
-   *    OR common Vietnamese diacritics/words.
-   *    Discard purely foreign-language videos when searching for Vietnam trends.
+   * 3. Drop videos where caption is empty or only contains generic tags (#fyp, #viral, #xuhuong, etc.) without Vietnamese words.
+   * 4. Vietnamese Tone Marks & Recognizable Words Check:
+   *    Discard videos with no Vietnamese tone marks AND no recognizable Vietnamese keywords.
+   * 5. Strict Query Relevance Check (when query is provided):
+   *    Video title or combined metadata MUST match query tokens or category expansions.
    */
   filterCandidatesByLanguageAndRegion(
     candidates: ViralContentCandidate[],
@@ -711,13 +809,17 @@ export class TiktokTrendService {
     const trimmedQuery = query ? query.trim() : "";
 
     return candidates.filter((c) => {
-      const title = c.title || "";
-      const nickname = c.author?.nickname || "";
-      const uniqueId = c.author?.uniqueId || "";
+      const title = String(c.title || "").trim();
+      const nickname = String(c.author?.nickname || (c as any).authorName || "").trim();
+      const uniqueId = String(c.author?.uniqueId || (c as any).authorUsername || "").trim();
       const combined = `${title} ${nickname} ${uniqueId}`;
 
-      // 1. Exclude Non-Target Alphabets: Burmese, Thai, Khmer, Arabic, Cyrillic, Chinese
-      if (NON_TARGET_ALPHABETS_REGEX.test(combined)) {
+      // 1. Exclude Non-Target Alphabets across title, author nickname, and uniqueId:
+      if (
+        NON_TARGET_ALPHABETS_REGEX.test(title) ||
+        NON_TARGET_ALPHABETS_REGEX.test(nickname) ||
+        NON_TARGET_ALPHABETS_REGEX.test(uniqueId)
+      ) {
         return false;
       }
 
@@ -730,26 +832,49 @@ export class TiktokTrendService {
         return false;
       }
 
-      // 3. If no query is provided (trending feed), accept video without foreign non-target scripts
+      // 3. Drop videos where caption is empty or only contains generic tags (#fyp, #viral, #xuhuong) without Vietnamese words
+      const textWithoutGenericTags = title
+        .replace(GENERIC_TAGS_REGEX, " ")
+        .replace(/@[\w.]+/g, " ")
+        .replace(/https?:\/\/\S+/g, " ")
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!textWithoutGenericTags) {
+        return false;
+      }
+
+      // 4. Tone marks or recognizable Vietnamese keywords check:
+      // If the video has no Vietnamese tone marks AND no recognizable Vietnamese keywords, discard it.
+      const hasToneMarks =
+        VIETNAMESE_DIACRITICS_REGEX.test(title) ||
+        VIETNAMESE_DIACRITICS_REGEX.test(nickname);
+
+      const normalizedClean = normalizeSearchText(textWithoutGenericTags);
+      const normalizedWords = new Set(
+        normalizedClean.split(" ").filter((w) => w.length >= 2)
+      );
+
+      const hasRecognizableWord = VIETNAMESE_UNACCENTED_KEYWORDS.some((word) => {
+        const normWord = normalizeSearchText(word);
+        if (normWord.includes(" ")) {
+          return normalizedClean.includes(normWord);
+        }
+        return normalizedWords.has(normWord);
+      });
+
+      if (!hasToneMarks && !hasRecognizableWord) {
+        return false;
+      }
+
+      // 5. If no query is provided (trending feed), accept video since it passed Vietnamese affinity check
       if (!trimmedQuery) {
         return true;
       }
 
-      // 4. Vietnamese Affinity Check when query is provided:
-      // Candidate must have some Vietnamese affinity marker (diacritics, VN tags, or common Vietnamese words)
-      const hasVietnameseAffinity =
-        VIETNAMESE_DIACRITICS_REGEX.test(title) ||
-        VIETNAMESE_DIACRITICS_REGEX.test(nickname) ||
-        /(?:#vn\b|#vietnam\b|#xuhuong\b|#xh\b|_vn\b)/i.test(combined) ||
-        VIETNAMESE_COMMON_WORDS.some((word) => title.toLowerCase().includes(word.toLowerCase()));
-
-      if (!hasVietnameseAffinity) {
-        return false;
-      }
-
-      // 5. Strict Query Relevance Check:
+      // 6. Strict Query Relevance Check (when query is provided):
       // Video title or combined metadata MUST match query tokens or category expansions.
-      // Rejects irrelevant generic comedy, news/military, or remix songs when searching specific queries.
       const coreTerms = getQueryCoreTerms(trimmedQuery);
       if (!matchesQueryRelevance(combined, coreTerms)) {
         return false;

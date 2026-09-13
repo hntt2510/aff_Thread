@@ -97,11 +97,11 @@ describe("TiktokTrendService", () => {
         },
         {
           video_id: "7100000003",
-          title: "Clip view vừa nhưng tim khủng (đạt chuẩn tim)",
+          title: "Clip view khủng đạt chuẩn viral",
           play: "https://v16.tiktokcdn.com/clean-video-3.mp4",
           cover: "https://p16.tiktokcdn.com/cover-3.jpg",
-          play_count: 35000, // < 50000
-          digg_count: 4500, // >= 2000 -> PASS
+          play_count: 150000, // >= 100000 -> PASS
+          digg_count: 4500,
           share_count: 300,
           comment_count: 80,
           duration: 20,
@@ -123,11 +123,11 @@ describe("TiktokTrendService", () => {
       const candidates = await service.fetchTrendingVideos({
         region: "VN",
         count: 10,
-        minViews: 50000,
+        minViews: 100000,
         minLikes: 2000,
       });
 
-      // Video 1 (250k views) and Video 3 (4.5k likes) should pass. Video 2 should be filtered out.
+      // Video 1 (250k views) and Video 3 (150k views) should pass. Video 2 (5k views) should be filtered out.
       expect(candidates).toHaveLength(2);
 
       const first = candidates[0];
@@ -148,7 +148,7 @@ describe("TiktokTrendService", () => {
         data: [
           {
             video_id: "7200000001",
-            title: "Relative URL clip",
+            title: "Clip đường dẫn tương đối siêu xịn",
             play: "/video/path/clean.mp4",
             cover: "/cover/path/cover.jpg",
             play_count: 100000,
@@ -248,6 +248,86 @@ describe("TiktokTrendService", () => {
       // Fallback preserves candidate instead of returning empty array
       expect(processed).toHaveLength(1);
       expect(processed[0].id).toBe("7400000001");
+    });
+
+    it("enforces views >= 100000 and filters out 20k-40k view clips by default", () => {
+      const feed = [
+        {
+          video_id: "v_250k",
+          title: "Clip 250k views siêu cuốn",
+          play: "/v1.mp4",
+          play_count: 250000,
+          digg_count: 10000,
+        },
+        {
+          video_id: "v_35k",
+          title: "Clip 35k views không đạt chuẩn",
+          play: "/v2.mp4",
+          play_count: 35000,
+          digg_count: 5000,
+        },
+        {
+          video_id: "v_20k",
+          title: "Clip 20k views không đạt chuẩn",
+          play: "/v3.mp4",
+          play_count: 20000,
+          digg_count: 4000,
+        },
+        {
+          video_id: "v_120k",
+          title: "Clip 120k views đạt chuẩn viral",
+          play: "/v4.mp4",
+          play_count: 120000,
+          digg_count: 6000,
+        },
+      ];
+
+      const processed = service.processRawVideos(feed, {
+        region: "VN",
+        minViews: 100000,
+        minLikes: 2000,
+      });
+
+      expect(processed).toHaveLength(2);
+      expect(processed.map((c) => c.id)).toEqual(["v_250k", "v_120k"]);
+    });
+
+    it("deduplicates candidates with identical video IDs in processRawVideos and deduplicateCandidates", () => {
+      const duplicateFeed = [
+        {
+          video_id: "duplicate_1",
+          title: "Clip hài Trường Giang 1",
+          play: "/v1.mp4",
+          play_count: 150000,
+          digg_count: 5000,
+        },
+        {
+          video_id: "duplicate_1",
+          title: "Clip hài Trường Giang 1 duplicate",
+          play: "/v1.mp4",
+          play_count: 150000,
+          digg_count: 5000,
+        },
+        {
+          video_id: "unique_2",
+          title: "Clip hài Trường Giang 2",
+          play: "/v2.mp4",
+          play_count: 200000,
+          digg_count: 8000,
+        },
+      ];
+
+      const candidates = service.processRawVideos(duplicateFeed, {
+        region: "VN",
+        minViews: 100000,
+        minLikes: 2000,
+      });
+
+      expect(candidates).toHaveLength(2);
+      expect(candidates.map((c) => c.id)).toEqual(["unique_2", "duplicate_1"]);
+
+      const dedupedAgain = service.deduplicateCandidates([...candidates, candidates[0]]);
+      expect(dedupedAgain).toHaveLength(2);
     });
   });
 
@@ -406,5 +486,44 @@ describe("TiktokTrendService", () => {
       expect(filtered).toHaveLength(1);
       expect(filtered[0].id).toBe("thai_3");
     });
+
+    it("filters out videos where author nickname or uniqueId contains Burmese/Thai characters even if caption only has #fyp #viral", () => {
+      const candidates = [
+        createCandidate("vn_clean", "Review đồ ăn vặt siêu ngon #fyp", "user_vn", "Ăn Vặt Sài Gòn"),
+        createCandidate("burmese_author", "#fyp #viral #trending", "burmese_user", "မင်္ဂလာပါ"),
+        createCandidate("thai_author", "#fyp #xuhuong", "รีวิว", "Thai Creator"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vn_clean");
+    });
+
+    it("drops videos where caption is empty or only contains generic tags like #fyp, #viral, #xuhuong without Vietnamese words", () => {
+      const candidates = [
+        createCandidate("empty_1", "", "user_1", "User One"),
+        createCandidate("empty_2", "   ", "user_2", "User Two"),
+        createCandidate("tags_only_1", "#fyp #viral #xuhuong #trending", "user_3", "User Three"),
+        createCandidate("tags_only_2", "🔥🔥🔥 #fyp #foryou", "user_4", "User Four"),
+        createCandidate("valid_vn", "Hài hước mỗi ngày cùng gia đình #fyp #xuhuong", "user_5", "User Five"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("valid_vn");
+    });
+
+    it("discards videos with no Vietnamese tone marks and no recognizable Vietnamese keywords", () => {
+      const candidates = [
+        createCandidate("english_clip", "Amazing sunset time lapse over the beach", "user_en", "Traveler"),
+        createCandidate("spanish_clip", "Hermoso dia en la playa con amigos", "user_es", "Amigo"),
+        createCandidate("vietnamese_clip", "Một buổi chiều hoàng hôn tuyệt đẹp", "user_vn", "Việt Nam"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe("vietnamese_clip");
+    });
   });
 });
+

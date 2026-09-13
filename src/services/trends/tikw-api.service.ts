@@ -271,10 +271,12 @@ export class TikWApiService {
     if (!rawVideos || !Array.isArray(rawVideos)) return [];
 
     const items: ViralVideoItem[] = [];
+    const seenIds = new Set<string>();
 
     for (const v of rawVideos) {
       const id = String(v.video_id ?? v.id ?? "").trim();
-      if (!id) continue;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
 
       const rawPlay = v.play || v.wmplay;
       if (!rawPlay) continue;

@@ -118,8 +118,8 @@ export default function TrendDiscoveryTab() {
         } = {
           region: r || "VN",
           count: 20,
-          minViews: 40000,
-          minLikes: 1500,
+          minViews: 100000,
+          minLikes: 2000,
         };
 
         // When user has typed text, send it trimmed. Do NOT send null or empty string.
@@ -135,7 +135,13 @@ export default function TrendDiscoveryTab() {
 
         const data = await res.json();
         if (res.ok && data.success) {
-          setCandidates(data.data || data.candidates || []);
+          const rawCandidates: ViralContentCandidate[] = data.data || data.candidates || [];
+          const uniqueCandidates = Array.from(
+            new Map<string, ViralContentCandidate>(
+              rawCandidates.map((c) => [c.id, c])
+            ).values()
+          );
+          setCandidates(uniqueCandidates);
         } else {
           setError(data.error || "Failed to fetch viral videos");
         }
@@ -363,23 +369,28 @@ export default function TrendDiscoveryTab() {
         {/* Quick Suggestion Chips */}
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
           <span className="text-slate-400 font-medium">Gợi ý nhanh:</span>
-          {QUICK_SEARCH_CHIPS.map((chip) => (
-            <button
-              key={chip.label}
-              onClick={() => {
-                setSearchQuery(chip.query);
-                setSelectedRegion(chip.region);
-                fetchViralVideos(chip.query, chip.region);
-              }}
-              className={`px-2.5 py-1 rounded-lg border transition-colors ${
-                searchQuery === chip.query
-                  ? "bg-purple-50 border-purple-300 text-purple-700 font-bold"
-                  : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {chip.label}
-            </button>
-          ))}
+          {QUICK_SEARCH_CHIPS.map((chip) => {
+            const isChipActive = chip.query
+              ? searchQuery === chip.query && selectedRegion === chip.region
+              : searchQuery === "" && selectedRegion === chip.region;
+            return (
+              <button
+                key={chip.label}
+                onClick={() => {
+                  setSearchQuery(chip.query);
+                  setSelectedRegion(chip.region);
+                  fetchViralVideos(chip.query, chip.region);
+                }}
+                className={`px-2.5 py-1 rounded-lg border transition-colors ${
+                  isChipActive
+                    ? "bg-purple-50 border-purple-300 text-purple-700 font-bold"
+                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
