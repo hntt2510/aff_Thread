@@ -210,6 +210,34 @@ describe("DealReplyComposerService", () => {
       expect(detectPostIntent("Ăn trưa thôi cả nhà ơi")).toBe("COMBO_VALUE_HACKER");
     });
 
+    it("detects entertainment/comedy/viral intent for VIRAL_POST_HIJACKER", () => {
+      expect(detectPostIntent("Xem Trường Giang cười xỉu trong 2 Ngày 1 Đêm")).toBe("VIRAL_POST_HIJACKER");
+      expect(detectPostIntent("Clip tiểu phẩm hài Trấn Thành và Lê Dương Bảo Lâm")).toBe("VIRAL_POST_HIJACKER");
+      expect(detectPostIntent("Tập mới gameshow rap việt đỉnh quá cả nhà ơi")).toBe("VIRAL_POST_HIJACKER");
+    });
+
+    it("composes VIRAL_POST_HIJACKER reply with friendly opener, price/unit price, voucher, and short link", () => {
+      const calculation = finalPriceCalculator.calculate({
+        observedPrice: 74000,
+        voucherCode: "TOPGIA10",
+        voucherDiscountAmount: 10000,
+      });
+
+      const res = dealReplyComposerService.composeViralPostHijackerReply({
+        title: "Thùng 9 bịch khăn giấy TopGia 4 lớp siêu dai",
+        directAffiliateUrl: "https://s.shopee.vn/topgia-tissue",
+        calculation,
+        voucherCode: "TOPGIA10",
+      });
+
+      expect(res.templateId).toBe("tmpl_viral_post_hijacker_v1");
+      expect(res.text).toContain("Mấy người đẹp ơi bài viral cho tui ké nhẹ chiếc deal hời này xíu nha 💕");
+      expect(res.text).toContain("đang xả kho/flash sale còn có ~64.000đ");
+      expect(res.text).toContain("tính ra có ~7.1k/bịch siêu rẻ luôn");
+      expect(res.text).toContain("Áp thêm mã shop: TOPGIA10");
+      expect(res.text).toContain("Link săn deal nè mn: https://s.shopee.vn/topgia-tissue");
+    });
+
     it("composes dual replies simultaneously with bundle pricing metadata", () => {
       const calculation = finalPriceCalculator.calculate({
         observedPrice: 120000,
@@ -229,9 +257,26 @@ describe("DealReplyComposerService", () => {
       expect(dual.helpfulReviewer.text).toContain("Shopee Mall");
       // 120000 / 3 = 40k
       expect(dual.comboValueHacker.text).toContain("~40k/món");
+      expect(dual.viralHijacker.text).toContain("Mấy người đẹp ơi bài viral");
       expect(dual.bundlePricing.isBundle).toBe(true);
       expect(dual.bundlePricing.bundleQuantity).toBe(3);
       expect(dual.bundlePricing.unitPrice).toBe(40000);
+    });
+
+    it("recommends VIRAL_POST_HIJACKER when post text is entertainment comedy", () => {
+      const calculation = finalPriceCalculator.calculate({ observedPrice: 50000 });
+      const dual = dealReplyComposerService.composeDualPersonaReplies(
+        {
+          title: "Bánh tráng phơi sương muối nhuyễn",
+          directAffiliateUrl: "https://s.shopee.vn/banhtrang",
+          calculation,
+        },
+        { postText: "Trường Giang tấu hài cười bể bụng" }
+      );
+
+      expect(dual.recommendedPersona).toBe("VIRAL_POST_HIJACKER");
+      expect(dual.viralHijacker.text).toContain("Mấy người đẹp ơi bài viral cho tui ké nhẹ chiếc deal hời này xíu nha 💕");
+      expect(dual.viralHijacker.text).toContain("https://s.shopee.vn/banhtrang");
     });
   });
 });

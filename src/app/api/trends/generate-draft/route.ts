@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { tiktokTrendService, generateBaitCaption } from "@/services/trends/tiktok-trend.service";
 import { weeklyPoolService, getCurrentIsoWeek } from "@/services/shopee/weekly-pool.service";
 import { productMatcherService, MatcherCandidateItem } from "@/services/shopee/product-matcher.service";
-import { dealReplyComposerService } from "@/services/shopee/deal-reply-composer.service";
+import { dealReplyComposerService, detectPostIntent } from "@/services/shopee/deal-reply-composer.service";
 import { finalPriceCalculator } from "@/services/shopee/final-price-calculator";
 import { db } from "@/db";
 import { productDealObservations, affiliateProducts, affiliateProductOffers } from "@/db/schema";
@@ -124,9 +124,29 @@ export async function POST(req: NextRequest) {
 
     // Match video title & bait caption against pool candidates
     const matchContext = `${videoTitle} ${baitCaption}`.trim();
+    const isEntertainmentPost = detectPostIntent(matchContext) === "VIRAL_POST_HIJACKER";
+
     const rankedMatches = productMatcherService.rankCandidates(matchContext, poolCandidates, {
       topN: 1,
     });
+
+    let chosenCandidate: MatcherCandidateItem | null = null;
+
+    // For viral/entertainment posts, target high-volume, low-cost impulse buy products under 150k
+    if (isEntertainmentPost && poolCandidates.length > 0) {
+      const impulseItems = poolCandidates.filter((p) => {
+        const pPrice = p.price || 999999;
+        return pPrice <= 150000;
+      });
+      if (impulseItems.length > 0) {
+        impulseItems.sort((a, b) => (b.catalogScore || 0) - (a.catalogScore || 0));
+        chosenCandidate = impulseItems[0];
+      } else {
+        chosenCandidate = poolCandidates[0];
+      }
+    } else if (rankedMatches.length > 0) {
+      chosenCandidate = rankedMatches[0].product;
+    }
 
     let matchedProduct: {
       id: string;
@@ -136,25 +156,25 @@ export async function POST(req: NextRequest) {
       shopDiscountAmount?: number;
       replyReviewer: string;
       replyCombo: string;
-      recommendedPersona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
+      replyViralHijacker: string;
+      recommendedPersona: "VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
       affiliateUrl: string;
     } | null = null;
 
-    if (rankedMatches.length > 0) {
-      const topMatch = rankedMatches[0];
+    if (chosenCandidate) {
       const calculation =
-        topMatch.product.dealCalculation ||
+        chosenCandidate.dealCalculation ||
         finalPriceCalculator.calculate({
-          observedPrice: topMatch.product.price || 100000,
+          observedPrice: chosenCandidate.price || 100000,
           userEligibility: "UNKNOWN",
         });
 
       const productItem = {
-        title: topMatch.product.title,
-        directAffiliateUrl: topMatch.product.affiliateUrl,
+        title: chosenCandidate.title,
+        directAffiliateUrl: chosenCandidate.affiliateUrl,
         calculation,
-        voucherCode: topMatch.product.voucherCode ?? calculation.evidence?.voucherCode,
-        discountRate: topMatch.product.discountRate,
+        voucherCode: chosenCandidate.voucherCode ?? calculation.evidence?.voucherCode,
+        discountRate: chosenCandidate.discountRate,
       };
 
       const dual = dealReplyComposerService.composeDualPersonaReplies(productItem, {
@@ -163,24 +183,25 @@ export async function POST(req: NextRequest) {
 
       const finalPrice =
         calculation.estimatedFinalPrice ||
-        topMatch.product.price ||
+        chosenCandidate.price ||
         calculation.basePrice ||
         100000;
 
-      const rawVoucher = topMatch.product.voucherCode ?? calculation.evidence?.voucherCode;
+      const rawVoucher = chosenCandidate.voucherCode ?? calculation.evidence?.voucherCode;
       const voucherCode = typeof rawVoucher === "string" ? rawVoucher.trim() : undefined;
       const discountAmount = calculation.discountAmount > 0 ? calculation.discountAmount : undefined;
 
       matchedProduct = {
-        id: topMatch.product.id,
-        name: topMatch.product.title,
+        id: chosenCandidate.id,
+        name: chosenCandidate.title,
         price: finalPrice,
         shopVoucherCode: voucherCode,
         shopDiscountAmount: discountAmount,
         replyReviewer: dual.helpfulReviewer.text,
         replyCombo: dual.comboValueHacker.text,
+        replyViralHijacker: dual.viralHijacker.text,
         recommendedPersona: dual.recommendedPersona,
-        affiliateUrl: topMatch.product.affiliateUrl,
+        affiliateUrl: chosenCandidate.affiliateUrl,
       };
     }
 

@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import type { ViralContentCandidate } from "@/services/trends/tiktok-trend.service";
+import { formatMetricNumber } from "@/services/trends/tikw-api.service";
 
 interface AccountOption {
   id: string;
@@ -49,7 +50,8 @@ export interface MatchedProductDraft {
   shopDiscountAmount?: number;
   replyReviewer: string;
   replyCombo: string;
-  recommendedPersona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
+  replyViralHijacker: string;
+  recommendedPersona: "VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
   affiliateUrl: string;
 }
 
@@ -70,7 +72,7 @@ export default function TrendDiscoveryTab() {
   const [preparingBait, setPreparingBait] = useState(false);
   const [rewrittenCaption, setRewrittenCaption] = useState("");
   const [matchedProduct, setMatchedProduct] = useState<MatchedProductDraft | null>(null);
-  const [activePersona, setActivePersona] = useState<"HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER">("HELPFUL_REVIEWER");
+  const [activePersona, setActivePersona] = useState<"VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER">("VIRAL_POST_HIJACKER");
   const [customReplyText, setCustomReplyText] = useState("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
@@ -180,11 +182,15 @@ export default function TrendDiscoveryTab() {
         const matched = data.draft.matchedProduct as MatchedProductDraft | null;
         setMatchedProduct(matched);
         if (matched) {
-          const rec = matched.recommendedPersona || "HELPFUL_REVIEWER";
+          const rec = matched.recommendedPersona || "VIRAL_POST_HIJACKER";
           setActivePersona(rec);
-          setCustomReplyText(
-            rec === "COMBO_VALUE_HACKER" ? matched.replyCombo : matched.replyReviewer
-          );
+          if (rec === "VIRAL_POST_HIJACKER") {
+            setCustomReplyText(matched.replyViralHijacker || matched.replyReviewer);
+          } else if (rec === "COMBO_VALUE_HACKER") {
+            setCustomReplyText(matched.replyCombo);
+          } else {
+            setCustomReplyText(matched.replyReviewer);
+          }
         } else {
           setCustomReplyText("");
         }
@@ -202,12 +208,18 @@ export default function TrendDiscoveryTab() {
     }
   };
 
-  const handleSelectPersona = (persona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER") => {
+  const handleSelectPersona = (
+    persona: "VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER"
+  ) => {
     setActivePersona(persona);
     if (matchedProduct) {
-      setCustomReplyText(
-        persona === "COMBO_VALUE_HACKER" ? matchedProduct.replyCombo : matchedProduct.replyReviewer
-      );
+      if (persona === "VIRAL_POST_HIJACKER") {
+        setCustomReplyText(matchedProduct.replyViralHijacker || matchedProduct.replyReviewer);
+      } else if (persona === "COMBO_VALUE_HACKER") {
+        setCustomReplyText(matchedProduct.replyCombo);
+      } else {
+        setCustomReplyText(matchedProduct.replyReviewer);
+      }
     }
   };
 
@@ -268,11 +280,7 @@ export default function TrendDiscoveryTab() {
     }
   };
 
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
-    return num.toString();
-  };
+  const formatNumber = (num: number) => formatMetricNumber(num);
 
   const formatK = (val: number | null | undefined): string => {
     if (val === null || val === undefined || isNaN(val) || val <= 0) return "0k";
@@ -441,6 +449,11 @@ export default function TrendDiscoveryTab() {
 
                 {/* View/Like Badges */}
                 <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 pointer-events-none">
+                  {cand.stats.views >= 1000000 && (
+                    <span className="bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[11px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs border border-amber-300/40 animate-pulse">
+                      🔥 Triệu View
+                    </span>
+                  )}
                   <span className="bg-black/60 backdrop-blur-xs text-white text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-white/10">
                     <Eye className="w-3 h-3 text-emerald-400" /> {formatNumber(cand.stats.views)}
                   </span>
@@ -685,7 +698,18 @@ export default function TrendDiscoveryTab() {
                             <MessageSquare className="w-3.5 h-3.5 text-indigo-600" /> Mẫu bình luận Affiliate tự động
                           </label>
 
-                          <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                          <div className="flex flex-wrap items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectPersona("VIRAL_POST_HIJACKER")}
+                              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                                activePersona === "VIRAL_POST_HIJACKER"
+                                  ? "bg-purple-600 text-white shadow-xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              💬 Ké Deal Viral
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleSelectPersona("HELPFUL_REVIEWER")}

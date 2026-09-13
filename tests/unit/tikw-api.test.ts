@@ -3,6 +3,7 @@ import {
   TikWApiService,
   TikWApiError,
   ViralVideoItem,
+  formatMetricNumber,
 } from "@/services/trends/tikw-api.service";
 import { TiktokTrendService } from "@/services/trends/tiktok-trend.service";
 
@@ -217,6 +218,60 @@ describe("TikWApiService", () => {
       expect(items[0].id).toBe("7330000003");
       expect(items[0].title).toContain("Anessa");
       expect(items[0].authorUsername).toBe("skincare_guru");
+    });
+
+    it("sorts candidates by views (play_count) descending to prioritize top viral videos", async () => {
+      const multiSearchFixture = {
+        code: 0,
+        msg: "success",
+        data: {
+          videos: [
+            {
+              video_id: "clip_low",
+              title: "Clip ít view",
+              play: "https://v16.tiktokcdn.com/low.mp4",
+              play_count: 50000,
+            },
+            {
+              video_id: "clip_mega",
+              title: "Clip triệu view siêu hot",
+              play: "https://v16.tiktokcdn.com/mega.mp4",
+              play_count: 3500000,
+            },
+            {
+              video_id: "clip_mid",
+              title: "Clip view vừa",
+              play: "https://v16.tiktokcdn.com/mid.mp4",
+              play_count: 520000,
+            },
+          ],
+        },
+      };
+
+      const service = new TikWApiService({ apiKey: "test_key" });
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => multiSearchFixture,
+      } as any);
+
+      // Flexible signature: searchViralVideos(keywords, region, count)
+      const items = await service.searchViralVideos("Trường Giang", "VN", 30);
+      expect(items).toHaveLength(3);
+      expect(items[0].id).toBe("clip_mega");
+      expect(items[0].views).toBe(3500000);
+      expect(items[1].id).toBe("clip_mid");
+      expect(items[1].views).toBe(520000);
+      expect(items[2].id).toBe("clip_low");
+      expect(items[2].views).toBe(50000);
+    });
+
+    it("formats views, likes, shares cleanly for UI display (e.g. 2.5M, 180k)", () => {
+      expect(formatMetricNumber(2500000)).toBe("2.5M");
+      expect(formatMetricNumber(1000000)).toBe("1M");
+      expect(formatMetricNumber(180000)).toBe("180k");
+      expect(formatMetricNumber(185500)).toBe("185.5k");
+      expect(formatMetricNumber(9500)).toBe("9.5k");
+      expect(formatMetricNumber(500)).toBe("500");
     });
   });
 

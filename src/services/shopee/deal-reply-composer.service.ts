@@ -12,7 +12,11 @@
 import { FinalPriceCalculationResult } from "./final-price-calculator";
 import { shopeeVoucherStackerService } from "./shopee-voucher-stacker.service";
 
-export type ReplyPersona = "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER" | "STANDARD";
+export type ReplyPersona =
+  | "HELPFUL_REVIEWER"
+  | "COMBO_VALUE_HACKER"
+  | "VIRAL_POST_HIJACKER"
+  | "STANDARD";
 
 export interface DealReplyProductItem {
   title: string;
@@ -164,11 +168,52 @@ export function extractBundlePricing(
 }
 
 /**
- * Detects post intent to choose between HELPFUL_REVIEWER and COMBO_VALUE_HACKER.
+ * Detects post intent to choose between VIRAL_POST_HIJACKER, HELPFUL_REVIEWER, and COMBO_VALUE_HACKER.
  */
-export function detectPostIntent(postText: string): "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER" {
+export function detectPostIntent(
+  postText: string
+): "VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER" {
   if (!postText) return "HELPFUL_REVIEWER";
   const clean = postText.toLowerCase();
+
+  // 1. Entertainment / Celebrity / Comedy / TV Show / Viral -> VIRAL_POST_HIJACKER
+  const viralKeywords = [
+    "trường giang",
+    "trấn thành",
+    "lê dương bảo lâm",
+    "2 ngày 1 đêm",
+    "hài",
+    "hài hước",
+    "show",
+    "gameshow",
+    "game show",
+    "showbiz",
+    "phim",
+    "clip hài",
+    "clip vui",
+    "clip bựa",
+    "clip chế",
+    "meme",
+    "tiểu phẩm",
+    "tập mới",
+    "tập full",
+    "tập đặc biệt",
+    "cười xỉu",
+    "cười bể bụng",
+    "rap việt",
+    "anh trai",
+    "chị đẹp",
+    "nghệ sĩ",
+    "diễn viên",
+    "ca sĩ",
+    "bựa",
+    "lầy",
+  ];
+  if (viralKeywords.some((kw) => clean.includes(kw))) {
+    return "VIRAL_POST_HIJACKER";
+  }
+
+  // 2. Recommendation inquiry keywords -> HELPFUL_REVIEWER
   const reviewerKeywords = [
     "review",
     "xin",
@@ -297,7 +342,65 @@ export class DealReplyComposerService {
   }
 
   /**
-   * Composes replies for both personas simultaneously, returning the recommended strategy.
+   * Strategy C: VIRAL_POST_HIJACKER (Ké Deal Bài Viral)
+   * Natural, friendly impulse-buy drop on viral entertainment, comedy, or celebrity posts.
+   */
+  composeViralPostHijackerReply(
+    item: DealReplyProductItem,
+    options?: DealReplyComposerOptions
+  ): ComposedDealReplyResult {
+    const directAffiliateUrl = sanitizeShopeeAffiliateUrl(item.directAffiliateUrl);
+    const { title, calculation } = item;
+    const basePrice = calculation.basePrice;
+    const finalPrice = calculation.estimatedFinalPrice || basePrice;
+    const origPrice =
+      calculation.evidence?.originalPrice && calculation.evidence.originalPrice > basePrice
+        ? calculation.evidence.originalPrice
+        : Math.round(basePrice * 1.3);
+
+    const bundle = extractBundlePricing(title, finalPrice, origPrice);
+
+    // Line 1: Natural friendly opener
+    const openerLine = "Mấy người đẹp ơi bài viral cho tui ké nhẹ chiếc deal hời này xíu nha 💕";
+
+    // Clean short product title
+    const shortTitle =
+      title.length > 45 ? `${title.slice(0, 42).trim()}...` : title;
+
+    // Line 2: Mention value / flash sale price or unit price
+    let dealLine = "";
+    if (bundle.isBundle) {
+      dealLine = `${shortTitle} đang xả kho/flash sale còn có ~${formatVnd(finalPrice)} (tính ra có ~${formatK(bundle.unitPrice)}/${bundle.bundleUnit} siêu rẻ luôn)`;
+    } else {
+      dealLine = `${shortTitle} đang xả kho/flash sale còn có ~${formatVnd(finalPrice)} (tính ra có ~${formatK(finalPrice)}/cái siêu rẻ luôn)`;
+    }
+
+    // Line 3: Shop voucher code if available
+    const rawCode = item.voucherCode ?? calculation.evidence?.voucherCode;
+    const voucherCode = typeof rawCode === "string" ? rawCode.trim() : null;
+
+    const lines = [openerLine, dealLine];
+    if (voucherCode) {
+      lines.push(`Áp thêm mã shop: ${voucherCode}`);
+    }
+
+    // Line 4: Clean short link
+    lines.push(`Link săn deal nè mn: ${directAffiliateUrl}`);
+
+    const text = lines.join("\n");
+    return {
+      text,
+      characterCount: text.length,
+      templateId: "tmpl_viral_post_hijacker_v1",
+      templateVersion: this.version,
+      dealState: calculation.dealState || "ACTIVE",
+      directUrlsUsed: [directAffiliateUrl],
+      generatedAt: new Date(),
+    };
+  }
+
+  /**
+   * Composes replies for all personas simultaneously, returning the recommended strategy.
    */
   composeDualPersonaReplies(
     item: DealReplyProductItem,
@@ -305,11 +408,13 @@ export class DealReplyComposerService {
   ): {
     helpfulReviewer: ComposedDealReplyResult;
     comboValueHacker: ComposedDealReplyResult;
-    recommendedPersona: "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
+    viralHijacker: ComposedDealReplyResult;
+    recommendedPersona: "VIRAL_POST_HIJACKER" | "HELPFUL_REVIEWER" | "COMBO_VALUE_HACKER";
     bundlePricing: BundlePricingInfo;
   } {
     const helpfulReviewer = this.composeHelpfulReviewerReply(item, options);
     const comboValueHacker = this.composeComboValueHackerReply(item, options);
+    const viralHijacker = this.composeViralPostHijackerReply(item, options);
     const recommendedPersona = options?.postText
       ? detectPostIntent(options.postText)
       : (extractBundlePricing(item.title, item.calculation.estimatedFinalPrice).isBundle
@@ -324,6 +429,7 @@ export class DealReplyComposerService {
     return {
       helpfulReviewer,
       comboValueHacker,
+      viralHijacker,
       recommendedPersona,
       bundlePricing,
     };
@@ -344,6 +450,9 @@ export class DealReplyComposerService {
     const primaryItem = products[0];
 
     // Explicit persona routing
+    if (options?.persona === "VIRAL_POST_HIJACKER") {
+      return this.composeViralPostHijackerReply(primaryItem, options);
+    }
     if (options?.persona === "HELPFUL_REVIEWER") {
       return this.composeHelpfulReviewerReply(primaryItem, options);
     }
@@ -352,7 +461,9 @@ export class DealReplyComposerService {
     }
     if (options?.postText) {
       const intent = detectPostIntent(options.postText);
-      if (intent === "HELPFUL_REVIEWER") {
+      if (intent === "VIRAL_POST_HIJACKER") {
+        return this.composeViralPostHijackerReply(primaryItem, options);
+      } else if (intent === "HELPFUL_REVIEWER") {
         return this.composeHelpfulReviewerReply(primaryItem, options);
       } else {
         return this.composeComboValueHackerReply(primaryItem, options);

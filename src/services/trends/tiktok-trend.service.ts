@@ -310,6 +310,49 @@ export function getQueryCoreTerms(query: string): string[] {
     ].forEach((t) => terms.add(t));
   }
 
+  // Entertainment / Celebrity / Comedy / TV Show (Giải trí, Hài hước, Showbiz)
+  const isEntertainment =
+    /truong giang|tran thanh|2 ngay 1 dem|hai\b|hai huoc|show|showbiz|phim|clip|meme|tieu pham|gameshow|rap viet|anh trai|chi dep|dien vien|nghe si|ca si/.test(
+      normalizedQuery
+    );
+  if (isEntertainment) {
+    [
+      "truong giang",
+      "trường giang",
+      "tran thanh",
+      "trấn thành",
+      "2 ngay 1 dem",
+      "2 ngày 1 đêm",
+      "hai",
+      "hài",
+      "hai huoc",
+      "hài hước",
+      "show",
+      "showbiz",
+      "phim",
+      "clip",
+      "meme",
+      "tieu pham",
+      "tiểu phẩm",
+      "gameshow",
+      "game show",
+      "rap viet",
+      "rap việt",
+      "anh trai",
+      "chị đẹp",
+      "nghe si",
+      "nghệ sĩ",
+      "dien vien",
+      "diễn viên",
+      "ca si",
+      "ca sĩ",
+      "cuoi",
+      "cười",
+      "tap",
+      "tập",
+    ].forEach((t) => terms.add(t));
+  }
+
   // Also add unspaced variants for multi-word phrases (for hashtags like #dogiadung, #kemchongnang, #phoido)
   const phrases = Array.from(terms);
   for (const p of phrases) {
@@ -786,7 +829,57 @@ export class TiktokTrendService {
       return newsHookTemplates[idx];
     }
 
-    // B. Shopping / Product / Skincare reviews
+    // B. Entertainment / Celebrity / Comedy / TV Shows / Memes: NEVER sell or mention products in main post!
+    const entertainmentKeywords = [
+      "trường giang",
+      "hài",
+      "show",
+      "2 ngày 1 đêm",
+      "showbiz",
+      "phim",
+      "clip hài",
+      "clip vui",
+      "clip bựa",
+      "clip chế",
+      "meme",
+      "hài hước",
+      "tiểu phẩm",
+      "tập mới",
+      "tập full",
+      "tập đặc biệt",
+      "gameshow",
+      "trấn thành",
+      "lê dương bảo lâm",
+      "nghệ sĩ",
+      "diễn viên",
+      "ca sĩ",
+      "rap việt",
+      "anh trai",
+      "chị đẹp",
+      "cười xỉu",
+      "cười bể bụng",
+      "bựa",
+      "lầy",
+      "duyên",
+    ];
+
+    const hasEntertainmentKeyword = entertainmentKeywords.some((kw) => lower.includes(kw));
+    if (hasEntertainmentKeyword) {
+      const entertainmentHookTemplates = [
+        `Xem đoạn này cười xỉu =))) Ai coi tập này rồi cho xin tập mấy với ạ 🤣\n\n"${cleaned}"`,
+        `Công nhận nét này duyên thật sự, có ai cũng mê đoạn này như tui không? =))\n\n"${cleaned}"`,
+        `Đang coi cuốn thì hết clip... ai có link full đoạn này không cho xin với!\n\n"${cleaned}"`,
+        `Đoạn này xem đi xem lại vẫn thấy hài =))) Ai biết tập mấy không cho tui xin info với! 👇\n\n"${cleaned}"`,
+      ];
+      const idx = Math.abs(cleaned.length) % entertainmentHookTemplates.length;
+      const formatted = entertainmentHookTemplates[idx];
+      if (formatted.length > 490) {
+        return `${formatted.slice(0, 485)}... 👇`;
+      }
+      return formatted;
+    }
+
+    // C. Shopping / Product / Skincare reviews
     const shoppingKeywords = [
       "review",
       "dùng thử",
@@ -833,7 +926,7 @@ export class TiktokTrendService {
       return shoppingHookTemplates[idx];
     }
 
-    // C. General Viral / Entertainment / Lifestyle Discussion Bait
+    // D. General Viral / Lifestyle Discussion Bait
     const generalHookTemplates = [
       `Lướt thấy clip này viral quá:\n\n"${cleaned}"\n\nMọi người nghĩ sao về vụ này? =))`,
       `Xem clip này mà cuốn thực sự cả nhà ơi:\n\n"${cleaned}"\n\nCó ai từng gặp tình huống tương tự chưa? 😂👇`,
@@ -890,6 +983,7 @@ export async function generateBaitCaption(videoTitle: string): Promise<string> {
                   text: `You are an expert Threads creator in Vietnam. Transform this TikTok video caption into an engaging, conversational Vietnamese Threads post hook (under 450 characters).
 IMPORTANT:
 - If the video is about news, accidents, fires, crimes, or tragic events, maintain a respectful, empathetic, safety-conscious tone. NEVER promote products, jokes, or ask for product reviews on tragic news.
+- If the video is about entertainment, celebrity, comedy, TV shows (e.g. 2 Ngày 1 Đêm, Trường Giang, gameshow, memes): Do NOT sell or mention products in the main post caption. Focus on curiosity, humor, and open-ended debate to drive replies (e.g., asking what episode it is, laughing at funny moments, asking for full links).
 - If the video is about shopping, skincare, tech gadgets, or products, frame it as asking for honest user reviews or sharing curiosity.
 - If the video is humorous, lifestyle, or general viral discussion, frame it as engaging debate or community chat.
 Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.\n\nVideo caption: "${videoTitle}"`,
@@ -934,14 +1028,12 @@ Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.
             {
               role: "system",
               content:
-                "You are a Threads content creator in Vietnam. Transform video captions into engaging, conversational Vietnamese Threads hooks under 450 characters without hashtags or quotes. Respect sensitive or tragic news with a safety-focused respectful tone, never promote products or jokes on tragedy.",
+                "You are an expert Threads creator in Vietnam. Transform the TikTok video title into a punchy, conversational Vietnamese Threads bait hook under 450 characters. For news/tragedies, be respectful and prioritize safety warnings. For entertainment, comedy, TV shows, and celebrities (e.g. Trường Giang, 2 Ngày 1 Đêm), DO NOT sell or mention products; focus on humor, curiosity, and asking for episode/links. For shopping/products, invite honest reviews. Output only the hook text without markdown or quotes.",
             },
-            {
-              role: "user",
-              content: `Video caption: "${videoTitle}"`,
-            },
+            { role: "user", content: videoTitle },
           ],
-          max_tokens: 200,
+          max_tokens: 150,
+          temperature: 0.7,
         }),
         signal: controller.signal,
       });
@@ -950,18 +1042,16 @@ Return ONLY the Vietnamese text without quotes, markdown backticks, or hashtags.
 
       if (res.ok) {
         const data = await res.json();
-        const content = data?.choices?.[0]?.message?.content?.trim();
-        if (content && content.length <= 500) {
-          return content;
+        const text = data?.choices?.[0]?.message?.content?.trim();
+        if (text && text.length <= 500) {
+          return text;
         }
-      } else {
-        console.warn(`[generateBaitCaption] OpenAI API returned status ${res.status}`);
       }
     } catch (err) {
       console.warn("[generateBaitCaption] OpenAI API call failed or timed out:", err);
     }
   }
 
-  // Graceful deterministic category-aware fallback
+  // Deterministic rule-based fallback
   return tiktokTrendService.rewriteCaptionForThreads(videoTitle);
 }

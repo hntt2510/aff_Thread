@@ -20,6 +20,21 @@ export interface ViralVideoItem {
   authorAvatar?: string;
 }
 
+/**
+ * Formats a metric number into clean compact representation (e.g. 2.5M, 180k).
+ */
+export function formatMetricNumber(num: number): string {
+  if (num >= 1000000) {
+    const m = num / 1000000;
+    return m % 1 === 0 ? `${m}M` : `${m.toFixed(1)}M`;
+  }
+  if (num >= 1000) {
+    const k = num / 1000;
+    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  return num.toString();
+}
+
 export type TikWApiErrorCode =
   | "INVALID_API_KEY"
   | "RATE_LIMITED"
@@ -96,22 +111,40 @@ export class TikWApiService {
       : Array.isArray(data?.videos)
       ? data.videos
       : [];
-    return this.normalizeVideos(rawVideos);
+    const items = this.normalizeVideos(rawVideos);
+    items.sort((a, b) => (b.views || 0) - (a.views || 0));
+    return items;
   }
 
   /**
    * Searches viral videos by keyword or hashtag.
    * Calls endpoint: /api/feed/search
+   * Supports both (keywords, count, region, cursor) and (keywords, region, count, cursor).
    */
   async searchViralVideos(
-    keyword: string,
-    count = 20,
-    region = "VN",
+    keywords: string,
+    countOrRegion: number | string = 30,
+    regionOrCount: string | number = "VN",
     cursor = 0
   ): Promise<ViralVideoItem[]> {
+    let count = 30;
+    let region = "VN";
+
+    if (typeof countOrRegion === "number") {
+      count = countOrRegion;
+      if (typeof regionOrCount === "string") {
+        region = regionOrCount;
+      }
+    } else if (typeof countOrRegion === "string") {
+      region = countOrRegion;
+      if (typeof regionOrCount === "number") {
+        count = regionOrCount;
+      }
+    }
+
     const endpoint = `${this.baseUrl}/api/feed/search`;
     const params = new URLSearchParams({
-      keywords: keyword.trim(),
+      keywords: keywords.trim(),
       count: String(count),
       region: region || "VN",
       cursor: String(cursor),
@@ -123,7 +156,12 @@ export class TikWApiService {
       : Array.isArray(data)
       ? data
       : [];
-    return this.normalizeVideos(rawVideos);
+    const items = this.normalizeVideos(rawVideos);
+
+    // Sort items by views (play_count) descending to prioritize top viral videos
+    items.sort((a, b) => (b.views || 0) - (a.views || 0));
+
+    return items;
   }
 
   /**

@@ -42,6 +42,17 @@ describe("TiktokTrendService", () => {
       const rewritten = service.rewriteCaptionForThreads(veryLong);
       expect(rewritten.length).toBeLessThanOrEqual(500);
     });
+
+    it("generates non-salesy curiosity and humor hooks for entertainment / celebrity / comedy videos", () => {
+      const raw = "Trường Giang bị Hieuthuhai troll cười xỉu tại 2 Ngày 1 Đêm #hai #truonggiang";
+      const rewritten = service.rewriteCaptionForThreads(raw);
+
+      // Must NOT contain sales pitch
+      expect(rewritten).not.toMatch(/săn sale|chốt đơn|giá rẻ|mua ngay/i);
+      // Must focus on humor, curiosity, open-ended debate
+      expect(rewritten).toMatch(/cười xỉu|tập mấy|duyên|link full|hài/i);
+      expect(rewritten).toContain("Trường Giang bị Hieuthuhai troll cười xỉu tại 2 Ngày 1 Đêm");
+    });
   });
 
   describe("Fetching & Normalizing Trending Videos", () => {
@@ -369,6 +380,21 @@ describe("TiktokTrendService", () => {
       const keptIds = filtered.map((c) => c.id);
       expect(keptIds).toEqual(["tech_1", "tech_2", "tech_3"]);
       expect(keptIds).not.toContain("irrelevant_3");
+    });
+
+    it("retains viral entertainment/comedy videos matching queries like 'Trường Giang' or '2 ngày 1 đêm'", () => {
+      const candidates = [
+        createCandidate("tg_1", "Hài Trường Giang cười bể bụng tại 2 Ngày 1 Đêm mùa 3"),
+        createCandidate("tg_2", "Khoảnh khắc duyên dáng của Trường Giang và Nhã Phương"),
+        createCandidate("other_skincare", "Top 3 kem chống nắng kiềm dầu nâng tone cực đỉnh"),
+      ];
+
+      const filtered = service.filterCandidatesByLanguageAndRegion(candidates, "VN", "Trường Giang");
+      expect(filtered).toHaveLength(2);
+      const keptIds = filtered.map((c) => c.id);
+      expect(keptIds).toContain("tg_1");
+      expect(keptIds).toContain("tg_2");
+      expect(keptIds).not.toContain("other_skincare");
     });
 
     it("does not filter non-target scripts when querying other regions like Thailand (TH)", () => {

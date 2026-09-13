@@ -235,12 +235,60 @@ describe("Trend Discovery & Bait-Post Draft Seeding", () => {
       expect(draft.matchedProduct.price).toBeGreaterThan(0);
       expect(draft.matchedProduct.affiliateUrl).toBe("https://s.shopee.vn/TORRIDEN_AFF");
 
-      // Dual persona replies
+      // Dual and viral persona replies
       expect(draft.matchedProduct.replyReviewer).toContain("https://s.shopee.vn/TORRIDEN_AFF");
       expect(draft.matchedProduct.replyCombo).toContain("https://s.shopee.vn/TORRIDEN_AFF");
-      expect(["HELPFUL_REVIEWER", "COMBO_VALUE_HACKER"]).toContain(
+      expect(draft.matchedProduct.replyViralHijacker).toContain("https://s.shopee.vn/TORRIDEN_AFF");
+      expect(["HELPFUL_REVIEWER", "COMBO_VALUE_HACKER", "VIRAL_POST_HIJACKER"]).toContain(
         draft.matchedProduct.recommendedPersona
       );
+    });
+
+    it("generates bait draft for entertainment video and recommends VIRAL_POST_HIJACKER with impulse buy deal", async () => {
+      const mockImpulseItem = {
+        poolItem: { id: "item_impulse_1", catalogScore: 92 },
+        product: {
+          id: "prod_tissue_1",
+          title: "Thùng 9 bịch khăn giấy TopGia 4 lớp",
+          category: "Household",
+          productUrl: "https://shopee.vn/product/123/456",
+          imageUrl: "https://cf.shopee.vn/file/tissue.jpg",
+        },
+        offer: {
+          id: "offer_tissue_1",
+          affiliateUrl: "https://s.shopee.vn/TOPGIA_TISSUE",
+          commissionRate: 15,
+          commissionAmount: 12000,
+          soldCount: 8000,
+        },
+      };
+
+      vi.spyOn(weeklyPoolService, "getPoolForWeek").mockResolvedValueOnce([mockImpulseItem as any]);
+
+      const req = createMockRequest({
+        videoTitle: "Trường Giang bị troll cười xỉu tại 2 Ngày 1 Đêm #hai #2ngay1dem",
+        videoUrl: "https://api.tikwmapi.com/tg-video.mp4",
+        coverUrl: "https://api.tikwmapi.com/tg-cover.jpg",
+        videoId: "750000003",
+      });
+
+      const res = await generateDraftHandler(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(json.draft).toBeDefined();
+
+      const draft = json.draft;
+      // Hook should be non-salesy humor/curiosity
+      expect(draft.baitCaption).toMatch(/cười xỉu|tập mấy|duyên|link full|hài/i);
+      expect(draft.baitCaption).not.toMatch(/săn sale|chốt đơn|giá rẻ/i);
+
+      // Matched impulse product & VIRAL_POST_HIJACKER persona
+      expect(draft.matchedProduct).toBeDefined();
+      expect(draft.matchedProduct.recommendedPersona).toBe("VIRAL_POST_HIJACKER");
+      expect(draft.matchedProduct.replyViralHijacker).toContain("Mấy người đẹp ơi bài viral cho tui ké nhẹ chiếc deal hời này xíu nha 💕");
+      expect(draft.matchedProduct.replyViralHijacker).toContain("https://s.shopee.vn/TOPGIA_TISSUE");
     });
 
     it("handles fallback gracefully when no products match or pool is empty", async () => {
