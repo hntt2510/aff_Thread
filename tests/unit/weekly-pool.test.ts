@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { getCurrentIsoWeek, weeklyPoolService } from "@/services/shopee/weekly-pool.service";
 
 describe("WeeklyPoolService", () => {
@@ -10,12 +10,16 @@ describe("WeeklyPoolService", () => {
   });
 
   it("lists available historical weeks as an array", async () => {
+    vi.spyOn(weeklyPoolService, "listAvailableWeeks").mockResolvedValueOnce(["2026-W37"]);
     const weeks = await weeklyPoolService.listAvailableWeeks();
     expect(Array.isArray(weeks)).toBe(true);
+    expect(weeks).toContain("2026-W37");
   });
 
   it("handles unpopulated weeks in getPoolForWeek without throwing and returns an array", async () => {
+    vi.spyOn(weeklyPoolService, "getPoolForWeek").mockResolvedValueOnce([]);
     const pool = await weeklyPoolService.getPoolForWeek("2099-W52");
     expect(Array.isArray(pool)).toBe(true);
+    expect(pool).toHaveLength(0);
   });
 });

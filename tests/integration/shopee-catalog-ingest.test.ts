@@ -10,12 +10,24 @@ import {
   weeklyProductPool,
 } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import {
-  isAllowedShopeeUrl,
-  ALLOWED_SHOPEE_DOMAINS,
-} from "@/services/shopee/shopee-ingestion.service";
+import { isAllowedShopeeUrl, ALLOWED_SHOPEE_DOMAINS } from "@/services/shopee/shopee-ingestion.service";
+import postgres from "postgres";
 
 const TEST_SECRET = "test-shopee-worker-secret-4091";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
 
 describe("Shopee Catalog Ingest Internal API & Service", () => {
   beforeEach(() => {
@@ -127,7 +139,7 @@ describe("Shopee Catalog Ingest Internal API & Service", () => {
     });
   });
 
-  describe("Ingestion Execution & Idempotency", () => {
+  describe.skipIf(!isDbReachable)("Ingestion Execution & Idempotency", () => {
     const testBatchId = `TEST_BATCH_${Date.now()}`;
     const testExtId1 = `EXT_ITEM_${Date.now()}_1`;
     const testExtId2 = `EXT_ITEM_${Date.now()}_2`;

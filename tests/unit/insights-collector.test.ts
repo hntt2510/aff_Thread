@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { insightsCollectorService } from "@/services/insights-collector.service";
 import { threadsClient } from "@/lib/threads/client";
 import { accountService } from "@/services/account.service";
@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { posts, threadsAccounts, postInsightSnapshots } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -105,5 +105,15 @@ describe.skipIf(!isDbReachable)("Insights Collector Service", () => {
     expect(snapshots[0].views).toBe(500);
     expect(snapshots[0].likes).toBe(25);
     expect(snapshots[0].threadsPostId).toBe("tp_111111");
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(postInsightSnapshots);
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

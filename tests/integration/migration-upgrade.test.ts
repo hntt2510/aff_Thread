@@ -61,7 +61,7 @@ async function applyMigration(sql: postgres.Sql, content: string): Promise<void>
 
 // ─── check DB reachability ───────────────────────────────────────────────────
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {

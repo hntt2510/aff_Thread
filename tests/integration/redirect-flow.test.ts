@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { affiliateService } from "@/services/affiliate.service";
 import { db } from "@/db";
 import { affiliateCampaigns, affiliateLinks, affiliateClicks } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -107,5 +107,15 @@ describe.skipIf(!isDbReachable)("Affiliate Tracking & Tracked Redirect Flow", ()
       slug: "does-not-exist-slug",
     });
     expect(result).toBeNull();
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(affiliateClicks);
+      await db.delete(affiliateLinks);
+      await db.delete(affiliateCampaigns);
+    } catch {
+      // ignore
+    }
   });
 });

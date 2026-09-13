@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { replyPublisherService } from "@/services/reply-publisher.service";
 import { monetizationService } from "@/services/monetization.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
@@ -15,7 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -265,5 +265,18 @@ describe.skipIf(!isDbReachable)("Reply Publisher Service", () => {
 
     expect(dbReply.status).toBe("PUBLISHED");
     expect(dbReply.threadsReplyId).toBe("reconciled_reply_id_999");
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(affiliateReplyLinks);
+      await db.delete(affiliateReplies);
+      await db.delete(monetizationPlans);
+      await db.delete(postMonetizationState);
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

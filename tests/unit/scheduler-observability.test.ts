@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { SchedulerService } from "@/services/scheduler.service";
 import { postService } from "@/services/post.service";
 import { db } from "@/db";
 import { schedulerRuns } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -116,5 +116,13 @@ describe.skipIf(!isDbReachable)("Scheduler Observability & Health Card", () => {
     expect(health.status).toBe("UNKNOWN");
     expect(health.lastRun).toBeNull();
     expect(health.lastSeenMinutesAgo).toBeNull();
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(schedulerRuns);
+    } catch {
+      // ignore
+    }
   });
 });

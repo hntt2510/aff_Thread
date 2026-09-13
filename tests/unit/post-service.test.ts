@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { PostService } from "@/services/post.service";
 import { AccountService } from "@/services/account.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
@@ -7,7 +7,7 @@ import { threadsAccounts, posts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -321,5 +321,14 @@ describe.skipIf(!isDbReachable)("PostService Multi-Account Publishing & Lifecycl
     expect(dbRecord.errorCode).toBe("STALE_PUBLISHING_TIMEOUT");
     expect(dbRecord.failedAt).not.toBeNull();
     // It is in FAILED, NOT SCHEDULED, guaranteeing NO blind duplicate publishing
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

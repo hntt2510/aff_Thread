@@ -4,8 +4,23 @@ import {
   GET as getTopOffersRoute,
   POST as postTopOffersRoute,
 } from "@/app/api/shopee/top-offers/route";
+import postgres from "postgres";
 
-describe("Shopee Top Rate Offers API Integration", () => {
+const databaseUrl = process.env.TEST_DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("Shopee Top Rate Offers API Integration", () => {
   const sampleApiItem = {
     item_id: "55913200112",
     long_link: "https://shopee.vn/universal-link/product/top-gia-tissue-55913200112",

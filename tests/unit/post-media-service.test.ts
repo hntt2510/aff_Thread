@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { PostService } from "@/services/post.service";
 import { AccountService } from "@/services/account.service";
 import { threadsClient } from "@/lib/threads/client";
@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { threadsAccounts, posts, postMedia } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -200,5 +200,15 @@ describe.skipIf(!isDbReachable)("PostService Media Publishing & Lifecycle", () =
     expect(scheduled).toBeDefined();
     expect(scheduled?.media).toHaveLength(1);
     expect(scheduled?.media?.[0].sourceUrl).toBe("https://example.com/banner.png");
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(postMedia);
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

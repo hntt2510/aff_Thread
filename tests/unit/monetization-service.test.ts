@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { monetizationService } from "@/services/monetization.service";
 import { db } from "@/db";
 import {
@@ -13,7 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -252,5 +252,18 @@ describe.skipIf(!isDbReachable)("Monetization Service", () => {
       .where(eq(affiliateReplies.monetizationPlanId, created.plan.id));
 
     expect(reply.status).toBe("CANCELLED");
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(affiliateReplyLinks);
+      await db.delete(affiliateReplies);
+      await db.delete(monetizationPlans);
+      await db.delete(postMonetizationState);
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

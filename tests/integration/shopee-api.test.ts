@@ -6,8 +6,23 @@ import { GET as getPoolRoute } from "@/app/api/shopee/weekly-pool/route";
 import { GET as getDealsRoute, POST as postDealsRoute } from "@/app/api/shopee/deals/route";
 import { POST as calculateDealsRoute } from "@/app/api/shopee/deals/calculate/route";
 import { POST as runMatcherRoute } from "@/app/api/shopee/matcher/run/route";
+import postgres from "postgres";
 
-describe("Shopee Deal Intelligence API Routes", () => {
+const databaseUrl = process.env.TEST_DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("Shopee Deal Intelligence API Routes", () => {
   it("GET /api/shopee/products returns paginated products list", async () => {
     const req = new NextRequest("http://localhost:3000/api/shopee/products?limit=5");
     const res = await getProductsRoute(req);

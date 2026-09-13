@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as signUploadPost } from "@/app/api/media/sign-upload/route";
 import { POST as registerPost } from "@/app/api/media/register/route";
@@ -11,7 +11,7 @@ import { db } from "@/db";
 import { mediaAssets, postMedia, posts, threadsAccounts } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -193,5 +193,16 @@ describe.skipIf(!isDbReachable)("Media API Endpoints Integration", () => {
     const data = await authRes.json();
     expect(data.success).toBe(true);
     expect(typeof data.deletedCount).toBe("number");
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(postMedia);
+      await db.delete(posts);
+      await db.delete(mediaAssets);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

@@ -1,7 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { inspectDatabaseSchema, ensureDatabaseSchema } from "@/db/migrate";
+import postgres from "postgres";
 
-describe("Admin Schema Migration and Inspection", () => {
+const databaseUrl = process.env.TEST_DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("Admin Schema Migration and Inspection", () => {
   it("inspects database schema accurately", async () => {
     const result = await inspectDatabaseSchema();
     expect(result).toBeDefined();

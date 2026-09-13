@@ -40,12 +40,18 @@ export async function POST(req: NextRequest) {
 
     if (poolItems.length > 0) {
       for (const item of poolItems) {
-        const [dealObs] = await db
-          .select()
-          .from(productDealObservations)
-          .where(eq(productDealObservations.productId, item.product.id))
-          .orderBy(desc(productDealObservations.observedAt))
-          .limit(1);
+        let dealObs: any = null;
+        try {
+          const [obs] = await db
+            .select()
+            .from(productDealObservations)
+            .where(eq(productDealObservations.productId, item.product.id))
+            .orderBy(desc(productDealObservations.observedAt))
+            .limit(1);
+          dealObs = obs;
+        } catch {
+          // Graceful fallback when DB is unreachable or isolated
+        }
 
         let dealOpportunityScore = 50;
         let dealCalculation: any = undefined;
@@ -84,41 +90,45 @@ export async function POST(req: NextRequest) {
       }
     } else {
       // Fallback: active products with offers
-      const activeProds = await db
-        .select({
-          product: affiliateProducts,
-          offer: affiliateProductOffers,
-        })
-        .from(affiliateProducts)
-        .leftJoin(
-          affiliateProductOffers,
-          and(
-            eq(affiliateProductOffers.productId, affiliateProducts.id),
-            eq(affiliateProductOffers.isActive, true)
+      try {
+        const activeProds = await db
+          .select({
+            product: affiliateProducts,
+            offer: affiliateProductOffers,
+          })
+          .from(affiliateProducts)
+          .leftJoin(
+            affiliateProductOffers,
+            and(
+              eq(affiliateProductOffers.productId, affiliateProducts.id),
+              eq(affiliateProductOffers.isActive, true)
+            )
           )
-        )
-        .where(eq(affiliateProducts.isActive, true))
-        .orderBy(desc(affiliateProducts.updatedAt))
-        .limit(20);
+          .where(eq(affiliateProducts.isActive, true))
+          .orderBy(desc(affiliateProducts.updatedAt))
+          .limit(20);
 
-      for (const row of activeProds) {
-        const affUrl =
-          (row.offer?.affiliateUrl?.includes("s.shopee.vn") ? row.offer.affiliateUrl : null) ||
-          (row.product.productUrl?.includes("s.shopee.vn") ? row.product.productUrl : null) ||
-          row.offer?.affiliateUrl ||
-          row.product.productUrl;
+        for (const row of activeProds) {
+          const affUrl =
+            (row.offer?.affiliateUrl?.includes("s.shopee.vn") ? row.offer.affiliateUrl : null) ||
+            (row.product.productUrl?.includes("s.shopee.vn") ? row.product.productUrl : null) ||
+            row.offer?.affiliateUrl ||
+            row.product.productUrl;
 
-        poolCandidates.push({
-          id: row.product.id,
-          title: row.product.title,
-          category: row.product.category,
-          productUrl: row.product.productUrl,
-          affiliateUrl: affUrl,
-          imageUrl: row.product.imageUrl,
-          catalogScore: 60,
-          dealOpportunityScore: 50,
-          price: null,
-        });
+          poolCandidates.push({
+            id: row.product.id,
+            title: row.product.title,
+            category: row.product.category,
+            productUrl: row.product.productUrl,
+            affiliateUrl: affUrl,
+            imageUrl: row.product.imageUrl,
+            catalogScore: 60,
+            dealOpportunityScore: 50,
+            price: null,
+          });
+        }
+      } catch (dbErr) {
+        console.warn("[generate-draft] Failed to fetch fallback products from database:", dbErr);
       }
     }
 

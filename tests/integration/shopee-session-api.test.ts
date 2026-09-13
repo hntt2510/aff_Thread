@@ -4,8 +4,23 @@ import { GET as getSessionRoute, POST as postSessionRoute, DELETE as deleteSessi
 import { POST as testSessionRoute } from "@/app/api/shopee/session/test/route";
 import { POST as generateLinkRoute } from "@/app/api/shopee/generate-link/route";
 import { shopeeDirectApiClient } from "@/services/shopee/shopee-direct-api.client";
+import postgres from "postgres";
 
-describe("Shopee Session API Integration", () => {
+const databaseUrl = process.env.TEST_DATABASE_URL;
+let isDbReachable = false;
+
+if (databaseUrl) {
+  try {
+    const probe = postgres(databaseUrl, { max: 1, connect_timeout: 2 });
+    await probe`SELECT 1`;
+    await probe.end();
+    isDbReachable = true;
+  } catch {
+    isDbReachable = false;
+  }
+}
+
+describe.skipIf(!isDbReachable)("Shopee Session API Integration", () => {
   beforeEach(async () => {
     // Clean up session before each test
     await deleteSessionRoute();

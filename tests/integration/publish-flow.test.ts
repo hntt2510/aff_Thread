@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { GET as getPostsHandler, POST as createPostHandler } from "@/app/api/posts/route";
 import { GET as getStatsHandler } from "@/app/api/dashboard/stats/route";
 import { NextRequest } from "next/server";
@@ -8,7 +8,7 @@ import { db } from "@/db";
 import { posts, threadsAccounts } from "@/db/schema";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -124,5 +124,14 @@ describe.skipIf(!isDbReachable)("Publish API and Dashboard Stats Integration", (
     expect(updatedStats.connectedAccounts).toBe(1);
     expect(updatedStats.publishedPosts).toBe(1);
     expect(updatedStats.failedPosts).toBe(0);
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });

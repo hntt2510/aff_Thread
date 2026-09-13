@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { AccountService } from "@/services/account.service";
 import { threadsClient, ThreadsApiError } from "@/lib/threads/client";
 import { db } from "@/db";
@@ -6,7 +6,7 @@ import { threadsAccounts, posts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
 
 if (databaseUrl) {
@@ -219,5 +219,14 @@ describe.skipIf(!isDbReachable)("AccountService Multi-Account Operations", () =>
 
     await service.removeAccount(account.id);
     expect(await service.listAccounts()).toHaveLength(0);
+  });
+
+  afterAll(async () => {
+    try {
+      await db.delete(posts);
+      await db.delete(threadsAccounts);
+    } catch {
+      // ignore
+    }
   });
 });
