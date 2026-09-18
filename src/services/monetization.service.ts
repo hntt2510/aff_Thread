@@ -303,7 +303,7 @@ export class MonetizationService {
       throw new Error(`Post not found: ${input.postId}`);
     }
 
-    if (!post.threadsPostId) {
+    if (!post.threadsPostId && post.status !== "DRAFT" && post.status !== "SCHEDULED") {
       throw new Error("Cannot create monetization plan: parent post does not have a Threads Post ID");
     }
 

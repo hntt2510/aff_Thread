@@ -142,19 +142,27 @@ function PostsContent() {
   };
 
   const handlePublishNow = async (postId: string) => {
-    if (!confirm("Publish this scheduled post immediately to Threads?")) return;
+    if (!confirm("Publish this post immediately to Threads (including seeding reply)?")) return;
 
     setActionLoadingId(postId);
     setActionMessage(null);
     setError(null);
 
     try {
-      const res = await fetch(`/api/posts/${postId}/publish-now`, { method: "POST" });
+      const res = await fetch("/api/threads/publish-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId, skipDelay: false }),
+      });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.success) {
         setError(data.error || "Failed to publish post immediately");
       } else {
-        setActionMessage("Post published immediately to Threads!");
+        setActionMessage(
+          data.threadUrl
+            ? `Post published successfully! View at: ${data.threadUrl}`
+            : "Post published immediately to Threads!"
+        );
         fetchPosts();
       }
     } catch {
@@ -538,6 +546,51 @@ function PostsContent() {
                 <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   {/* Left: Operational Action Buttons */}
                   <div className="flex flex-wrap items-center gap-2">
+                    {post.status === "DRAFT" && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isActionLoading}
+                          onClick={() => handlePublishNow(post.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50"
+                          title="Publish post and automatic reply to Threads"
+                        >
+                          {isActionLoading ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                          Publish Now
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isActionLoading}
+                          onClick={() => {
+                            setReschedulingPostId(post.id);
+                            if (post.scheduledAt) {
+                              const d = new Date(post.scheduledAt);
+                              setRescheduleDate(d.toISOString().split("T")[0]);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-md font-medium transition-colors"
+                        >
+                          <Calendar className="w-3 h-3" />
+                          Schedule
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isActionLoading}
+                          onClick={() => handleCancelPost(post.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 rounded-md font-medium transition-colors disabled:opacity-50"
+                        >
+                          <XCircle className="w-3 h-3 text-rose-500" />
+                          Discard
+                        </button>
+                      </>
+                    )}
+
                     {post.status === "SCHEDULED" && (
                       <>
                         <button

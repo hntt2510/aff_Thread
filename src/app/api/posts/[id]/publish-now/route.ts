@@ -25,7 +25,7 @@ export async function POST(
         "publish_attempts" = "posts"."publish_attempts" + 1,
         "last_attempt_at" = NOW(),
         "updated_at" = NOW()
-      WHERE "id" = ${id} AND "status" = 'SCHEDULED'
+      WHERE "id" = ${id} AND ("status" = 'SCHEDULED' OR "status" = 'DRAFT')
       RETURNING
         "id",
         "account_id" as "accountId",
@@ -51,7 +51,7 @@ export async function POST(
 
     if (!claimed) {
       return NextResponse.json(
-        { error: "Post is not in SCHEDULED state or is already being processed" },
+        { error: "Post is not in SCHEDULED or DRAFT state or is already being processed" },
         { status: 400 }
       );
     }

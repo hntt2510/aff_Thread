@@ -19,6 +19,7 @@ import {
   MessageSquare,
   ArrowRight,
   HelpCircle,
+  Rocket,
 } from "lucide-react";
 import type {
   ThreadArchetype,
@@ -98,12 +99,15 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   const [copiedMain, setCopiedMain] = useState(false);
   const [copiedReply, setCopiedReply] = useState(false);
 
-  // Draft saving
+  // Draft & Publishing
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSavedPostId, setDraftSavedPostId] = useState<string | null>(null);
   const [draftSuccessMsg, setDraftSuccessMsg] = useState<string | null>(null);
+  const [publishingNow, setPublishingNow] = useState(false);
+  const [publishStageMsg, setPublishStageMsg] = useState<string | null>(null);
+  const [publishedThreadUrl, setPublishedThreadUrl] = useState<string | null>(null);
 
   // Fetch accounts on mount for drafting
   useEffect(() => {
@@ -158,6 +162,8 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       setError(null);
       setDraftSavedPostId(null);
       setDraftSuccessMsg(null);
+      setPublishedThreadUrl(null);
+      setPublishStageMsg(null);
 
       const res = await fetch("/api/threads/compose-text", {
         method: "POST",
@@ -262,6 +268,68 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       setError(msg);
     } finally {
       setSavingDraft(false);
+    }
+  };
+
+  const handlePublishNow = async () => {
+    if (!selectedAccountId) {
+      setError("Vui lòng chọn tài khoản Threads để đăng bài.");
+      return;
+    }
+    if (!editableMainPost.trim()) {
+      setError("Nội dung bài viết chính không được để trống.");
+      return;
+    }
+    if (editableMainPost.length > 500) {
+      setError(`Bài viết chính hiện có ${editableMainPost.length} ký tự, vượt quá giới hạn 500 ký tự của Threads. Vui lòng rút gọn bớt.`);
+      return;
+    }
+
+    let stageTimer: NodeJS.Timeout | null = null;
+    try {
+      setPublishingNow(true);
+      setError(null);
+      setPublishedThreadUrl(null);
+      setPublishStageMsg("Đang đăng bài viết chính lên Meta Threads...");
+
+      stageTimer = setTimeout(() => {
+        setPublishStageMsg("Đã tạo bài chính! Đang giữ nhịp tự nhiên 30-60s để gieo bình luận chốt deal...");
+      }, 3500);
+
+      const payload = draftSavedPostId
+        ? { postId: draftSavedPostId }
+        : {
+            accountId: selectedAccountId,
+            mainPostText: editableMainPost.trim(),
+            firstReplyText: editableFirstReply.trim() || undefined,
+            directAffiliateUrl: affiliateUrl.trim() || undefined,
+          };
+
+      const res = await fetch("/api/threads/publish-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (stageTimer) clearTimeout(stageTimer);
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Không thể xuất bản bài viết lên Threads.");
+      }
+
+      setPublishedThreadUrl(data.threadUrl);
+      setDraftSuccessMsg(null);
+      if (data.postId) {
+        setDraftSavedPostId(data.postId);
+      }
+    } catch (err: unknown) {
+      if (stageTimer) clearTimeout(stageTimer);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setPublishingNow(false);
+      setPublishStageMsg(null);
     }
   };
 
@@ -512,6 +580,51 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             </div>
           )}
 
+          {publishStageMsg && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3 text-indigo-900 text-xs sm:text-sm">
+              <RefreshCw className="w-5 h-5 text-indigo-600 animate-spin shrink-0" />
+              <div className="flex-1">
+                <span className="font-semibold block">Đang xuất bản lên Threads:</span>
+                <span className="text-indigo-700 text-xs">{publishStageMsg}</span>
+              </div>
+            </div>
+          )}
+
+          {publishedThreadUrl && (
+            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-300 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Rocket className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-xs sm:text-sm text-emerald-950">
+                    Bài viết đã xuất bản trực tiếp lên Meta Threads! 🚀
+                  </div>
+                  <div className="text-[11px] text-emerald-700 font-mono truncate max-w-sm sm:max-w-md mt-0.5">
+                    {publishedThreadUrl}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                <a
+                  href={publishedThreadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs"
+                >
+                  <span>Xem trên Threads</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <Link
+                  href="/posts"
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition-colors"
+                >
+                  Quản lý bài
+                </Link>
+              </div>
+            </div>
+          )}
+
           {!result && !composing && (
             <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 space-y-3">
               <MessageSquare className="w-12 h-12 mx-auto text-slate-300" />
@@ -605,11 +718,11 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                 />
               </div>
 
-              {/* Save as Draft Post Action Box */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="w-full sm:w-auto flex-1">
+              {/* Draft & Publish Action Box */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4">
+                <div className="w-full">
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Chọn tài khoản Threads để lưu nháp
+                    Chọn tài khoản Threads để lưu nháp / đăng bài
                   </label>
                   <select
                     value={selectedAccountId}
@@ -625,24 +738,45 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                   </select>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleSaveDraft}
-                  disabled={savingDraft || !selectedAccountId}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 mt-auto"
-                >
-                  {savingDraft ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Đang lưu...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      Lưu Draft & Tạo Kế Hoạch Reply
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2 border-t border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraft}
+                    disabled={savingDraft || publishingNow || !selectedAccountId}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                  >
+                    {savingDraft ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Đang lưu...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        Lưu Draft & Tạo Kế Hoạch Reply
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePublishNow}
+                    disabled={savingDraft || publishingNow || !selectedAccountId}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                  >
+                    {publishingNow ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Đang xuất bản...
+                      </>
+                    ) : (
+                      <>
+                        <Rocket className="w-4 h-4 text-amber-300" />
+                        🚀 Đăng ngay lên Threads (Publish Now)
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}

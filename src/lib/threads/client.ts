@@ -108,7 +108,7 @@ export class ThreadsClient {
    * Endpoint: POST /me/threads
    * Note: The access token is NEVER included in the request body or URL.
    */
-  async createTextContainer(accessToken: string, text: string): Promise<{ id: string }> {
+  async createTextContainer(accessToken: string, text: string, threadsUserId?: string): Promise<{ id: string }> {
     if (!accessToken || !accessToken.trim()) {
       throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
     }
@@ -117,7 +117,8 @@ export class ThreadsClient {
       throw new ThreadsApiError("API_ERROR", "Text content cannot be empty", 400);
     }
 
-    const url = `${this.baseUrl}/me/threads`;
+    const target = threadsUserId && threadsUserId.trim() ? encodeURIComponent(threadsUserId.trim()) : "me";
+    const url = `${this.baseUrl}/${target}/threads`;
     const params = new URLSearchParams();
     params.set("media_type", "TEXT");
     params.set("text", text);
@@ -392,7 +393,7 @@ export class ThreadsClient {
    * Endpoint: POST /me/threads_publish
    * Note: The access token is NEVER included in the request body or URL.
    */
-  async publishContainer(accessToken: string, creationId: string): Promise<{ id: string }> {
+  async publishContainer(accessToken: string, creationId: string, threadsUserId?: string): Promise<{ id: string }> {
     if (!accessToken || !accessToken.trim()) {
       throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
     }
@@ -401,7 +402,8 @@ export class ThreadsClient {
       throw new ThreadsApiError("API_ERROR", "Creation container ID is required", 400);
     }
 
-    const url = `${this.baseUrl}/me/threads_publish`;
+    const target = threadsUserId && threadsUserId.trim() ? encodeURIComponent(threadsUserId.trim()) : "me";
+    const url = `${this.baseUrl}/${target}/threads_publish`;
     const params = new URLSearchParams();
     params.set("creation_id", creationId);
 
@@ -491,7 +493,8 @@ export class ThreadsClient {
     replyToId: string,
     text: string,
     mediaKind?: "TEXT" | "IMAGE" | "VIDEO",
-    mediaUrl?: string
+    mediaUrl?: string,
+    threadsUserId?: string
   ): Promise<{ id: string }> {
     if (!accessToken || !accessToken.trim()) {
       throw new ThreadsApiError("INVALID_TOKEN", "Access token cannot be empty", 400);
@@ -503,7 +506,8 @@ export class ThreadsClient {
       throw new ThreadsApiError("API_ERROR", "Reply text cannot be empty", 400);
     }
 
-    const url = `${this.baseUrl}/me/threads`;
+    const target = threadsUserId && threadsUserId.trim() ? encodeURIComponent(threadsUserId.trim()) : "me";
+    const url = `${this.baseUrl}/${target}/threads`;
     const params = new URLSearchParams();
     params.set("reply_to_id", replyToId.trim());
     params.set("media_type", mediaKind || "TEXT");
