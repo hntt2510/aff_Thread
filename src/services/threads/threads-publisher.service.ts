@@ -31,6 +31,24 @@ export interface PublishResult {
   publishedAt: string;
 }
 
+export interface PublishBaitOptions {
+  delayReplyMinutes?: number;
+  manualReplyOnly?: boolean;
+}
+
+export interface BaitPublishResult {
+  success: boolean;
+  postId: string;
+  threadsPostId: string;
+  threadUrl: string;
+  accountUsername: string;
+  publishedAt: string;
+  replyPlanId?: string;
+  replyId?: string;
+  replyStatus?: string;
+  scheduledReplyAt?: string | null;
+}
+
 export interface DirectPublishInput {
   accountId: string;
   mainPostText: string;
@@ -41,11 +59,28 @@ export interface DirectPublishInput {
   skipDelay?: boolean;
 }
 
+export interface DirectBaitInput {
+  accountId: string;
+  mainPostText: string;
+  firstReplyText?: string;
+  directAffiliateUrl?: string;
+  delayReplyMinutes?: number;
+  manualReplyOnly?: boolean;
+}
+
+export interface PublishReplyResult {
+  success: boolean;
+  replyId: string;
+  threadsReplyId: string;
+  publishedAt: string;
+  threadUrl?: string;
+}
+
 export class ThreadsPublisherService {
   /**
    * Generates a randomized natural delay (jitter) between minDelayMs (default 30s) and maxDelayMs (default 60s)
    */
-  private calculateDelay(minMs = 30000, maxMs = 60000): number {
+  calculateDelay(minMs = 30000, maxMs = 60000): number {
     const min = Math.max(0, minMs);
     const max = Math.max(min, maxMs);
     return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -419,6 +454,400 @@ export class ThreadsPublisherService {
     }
 
     return updatedPost;
+  }
+
+  /**
+   * Publishes ONLY the main Bait post to Meta Threads via Graph API.
+   * Decouples the affiliate reply by setting its plan to PENDING_TRIGGER or scheduling it for later.
+   */
+  async publishBaitPost(
+    postId: string,
+    options?: PublishBaitOptions
+  ): Promise<BaitPublishResult> {
+    const [post] = await db
+      .select()
+      .from(posts)
+      .where(eq(posts.id, postId))
+      .limit(1);
+
+    if (!post) {
+      throw new Error(`Post not found: ${postId}`);
+    }
+
+    if (!post.accountId) {
+      throw new Error("Post has no associated Threads account");
+    }
+
+    // 1. Load account and decrypt long-lived token server-side
+    const { token, account } = await accountService.getDecryptedTokenForAccount(post.accountId);
+
+    if (account.status !== "ACTIVE") {
+      throw new ThreadsApiError(
+        "INVALID_TOKEN",
+        `Account @${account.username} is in '${account.status}' status. Token verification or replacement required.`
+      );
+    }
+
+    // 2. Mark post as PUBLISHING
+    await db
+      .update(posts)
+      .set({
+        status: "PUBLISHING",
+        publishAttempts: sql`publish_attempts + 1`,
+        lastAttemptAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(posts.id, post.id));
+
+    let publishedThreadsPostId: string;
+    const publishedAt = new Date();
+
+    try {
+      // Step A: Create Main Post Container
+      const mainContainer = await threadsClient.createTextContainer(
+        token,
+        post.text,
+        account.threadsUserId
+      );
+
+      // Step B: Publish Main Post Container
+      const publishMainRes = await threadsClient.publishContainer(
+        token,
+        mainContainer.id,
+        account.threadsUserId
+      );
+      publishedThreadsPostId = publishMainRes.id;
+
+      // Step C: Update DB with successful main post
+      await db
+        .update(posts)
+        .set({
+          status: "PUBLISHED",
+          containerId: mainContainer.id,
+          threadsPostId: publishedThreadsPostId,
+          publishedAt,
+          lastAttemptAt: publishedAt,
+          errorCode: null,
+          errorMessage: null,
+          lastError: null,
+          updatedAt: publishedAt,
+        })
+        .where(eq(posts.id, post.id));
+    } catch (err: unknown) {
+      const safeMsg = sanitizeErrorMessage(err, "Failed to publish main bait post to Threads");
+      const isAuthError = err instanceof ThreadsApiError && err.code === "INVALID_TOKEN";
+
+      if (isAuthError && post.accountId) {
+        await db
+          .update(threadsAccounts)
+          .set({
+            status: "INVALID_TOKEN",
+            lastCheckedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(threadsAccounts.id, post.accountId));
+      }
+
+      await db
+        .update(posts)
+        .set({
+          status: "FAILED",
+          errorCode: isAuthError ? "INVALID_TOKEN" : "API_ERROR",
+          errorMessage: safeMsg,
+          lastError: safeMsg,
+          failedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(posts.id, post.id));
+
+      throw err;
+    }
+
+    // 3. Decoupled Reply Handling: put into PENDING_TRIGGER or schedule delayed
+    let replyPlanId: string | undefined;
+    let replyId: string | undefined;
+    let replyStatus = "PENDING_TRIGGER";
+    let scheduledReplyAt: string | null = null;
+
+    const [existingPlan] = await db
+      .select()
+      .from(monetizationPlans)
+      .where(eq(monetizationPlans.postId, post.id))
+      .limit(1);
+
+    if (existingPlan) {
+      replyPlanId = existingPlan.id;
+      const replies = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.monetizationPlanId, existingPlan.id))
+        .orderBy(asc(affiliateReplies.sequenceNo))
+        .limit(1);
+
+      if (replies.length > 0) {
+        replyId = replies[0].id;
+
+        if (options?.delayReplyMinutes && options.delayReplyMinutes > 0 && !options.manualReplyOnly) {
+          const targetSchedule = new Date(publishedAt.getTime() + options.delayReplyMinutes * 60 * 1000);
+          scheduledReplyAt = targetSchedule.toISOString();
+          replyStatus = "READY";
+
+          await db
+            .update(affiliateReplies)
+            .set({
+              status: "READY",
+              scheduledAt: targetSchedule,
+              nextEligibleAt: targetSchedule,
+              updatedAt: publishedAt,
+            })
+            .where(eq(affiliateReplies.id, replyId));
+
+          await db
+            .update(monetizationPlans)
+            .set({
+              status: "READY",
+              scheduledAt: targetSchedule,
+              updatedAt: publishedAt,
+            })
+            .where(eq(monetizationPlans.id, replyPlanId));
+        } else {
+          // Manual drop / PENDING_TRIGGER mode
+          replyStatus = "PENDING_TRIGGER";
+          await db
+            .update(affiliateReplies)
+            .set({
+              status: "PENDING_TRIGGER",
+              scheduledAt: null,
+              nextEligibleAt: null,
+              updatedAt: publishedAt,
+            })
+            .where(eq(affiliateReplies.id, replyId));
+
+          await db
+            .update(monetizationPlans)
+            .set({
+              status: "PENDING_TRIGGER",
+              scheduledAt: null,
+              updatedAt: publishedAt,
+            })
+            .where(eq(monetizationPlans.id, replyPlanId));
+        }
+      }
+    }
+
+    const threadUrl = `https://www.threads.net/@${account.username}/post/${publishedThreadsPostId}`;
+
+    return {
+      success: true,
+      postId: post.id,
+      threadsPostId: publishedThreadsPostId,
+      threadUrl,
+      accountUsername: account.username,
+      publishedAt: publishedAt.toISOString(),
+      replyPlanId,
+      replyId,
+      replyStatus,
+      scheduledReplyAt,
+    };
+  }
+
+  /**
+   * Direct bait creation and immediate publishing from the composer UI.
+   * Creates post and reply plan in database, then publishes ONLY the main bait post.
+   */
+  async publishDirectBait(input: DirectBaitInput): Promise<BaitPublishResult> {
+    const { accountId, mainPostText, firstReplyText, directAffiliateUrl, delayReplyMinutes, manualReplyOnly } = input;
+
+    if (!accountId || !accountId.trim()) {
+      throw new Error("Missing required accountId");
+    }
+
+    if (!mainPostText || !mainPostText.trim()) {
+      throw new Error("Main post text cannot be empty");
+    }
+
+    if (mainPostText.length > 500) {
+      throw new Error(`Main post exceeds Threads 500 characters limit (${mainPostText.length} chars)`);
+    }
+
+    // 1. Create draft post in DB
+    const { account } = await accountService.getDecryptedTokenForAccount(accountId);
+
+    const [createdPost] = await db
+      .insert(posts)
+      .values({
+        id: crypto.randomUUID(),
+        accountId,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: mainPostText.trim(),
+        mediaType: "TEXT",
+        status: "DRAFT",
+        publishAttempts: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // 2. Attach first reply plan if replyText exists
+    if (firstReplyText && firstReplyText.trim()) {
+      await monetizationService.createPlan({
+        postId: createdPost.id,
+        source: "SHOPEE_DEAL_ENGINE",
+        replies: [
+          {
+            sequenceNo: 1,
+            replyText: firstReplyText.trim(),
+            links: directAffiliateUrl
+              ? [
+                  {
+                    destinationUrl: directAffiliateUrl.trim(),
+                    metadataJson: JSON.stringify({
+                      platform: "shopee",
+                      affiliateType: "DIRECT",
+                      isDirectShopee: true,
+                    }),
+                  },
+                ]
+              : [],
+          },
+        ],
+      });
+    }
+
+    // 3. Publish Bait Post only
+    return await this.publishBaitPost(createdPost.id, {
+      delayReplyMinutes,
+      manualReplyOnly,
+    });
+  }
+
+  /**
+   * 1-Click Manual Drop: Immediately publishes the first reply comment
+   * under the live Threads post ID when manually triggered from UI.
+   */
+  async publishReplyNow(identifier: { replyId?: string; postId?: string }): Promise<PublishReplyResult> {
+    let replyRecord: AffiliateReply | undefined;
+
+    if (identifier.replyId) {
+      const [r] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, identifier.replyId))
+        .limit(1);
+      replyRecord = r;
+    } else if (identifier.postId) {
+      const [r] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.postId, identifier.postId))
+        .orderBy(asc(affiliateReplies.sequenceNo))
+        .limit(1);
+      replyRecord = r;
+    }
+
+    if (!replyRecord) {
+      throw new Error("No affiliate reply comment found to publish");
+    }
+
+    if (replyRecord.status === "PUBLISHED" && replyRecord.threadsReplyId) {
+      return {
+        success: true,
+        replyId: replyRecord.id,
+        threadsReplyId: replyRecord.threadsReplyId,
+        publishedAt: replyRecord.publishedAt?.toISOString() || new Date().toISOString(),
+      };
+    }
+
+    const [post] = await db
+      .select()
+      .from(posts)
+      .where(eq(posts.id, replyRecord.postId))
+      .limit(1);
+
+    if (!post || !post.threadsPostId || post.status !== "PUBLISHED") {
+      throw new Error("Cannot drop reply: Parent thread post has not been published yet");
+    }
+
+    if (!post.accountId) {
+      throw new Error("Parent post has no associated account");
+    }
+
+    const { token, account } = await accountService.getDecryptedTokenForAccount(post.accountId);
+
+    const now = new Date();
+
+    await db
+      .update(affiliateReplies)
+      .set({
+        status: "SUBMITTING",
+        lastAttemptAt: now,
+        updatedAt: now,
+      })
+      .where(eq(affiliateReplies.id, replyRecord.id));
+
+    try {
+      // Step A: Create Reply Container
+      const replyContainer = await threadsClient.createReplyContainer(
+        token,
+        post.threadsPostId,
+        replyRecord.replyText,
+        "TEXT",
+        undefined,
+        account.threadsUserId
+      );
+
+      // Step B: Publish Container
+      const publishReplyRes = await threadsClient.publishContainer(
+        token,
+        replyContainer.id,
+        account.threadsUserId
+      );
+
+      // Step C: Update DB
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "PUBLISHED",
+          threadsContainerId: replyContainer.id,
+          threadsReplyId: publishReplyRes.id,
+          publishedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(affiliateReplies.id, replyRecord.id));
+
+      if (replyRecord.monetizationPlanId) {
+        await db
+          .update(monetizationPlans)
+          .set({
+            status: "COMPLETED",
+            updatedAt: now,
+          })
+          .where(eq(monetizationPlans.id, replyRecord.monetizationPlanId));
+      }
+
+      const threadUrl = `https://www.threads.net/@${account.username}/post/${post.threadsPostId}`;
+
+      return {
+        success: true,
+        replyId: replyRecord.id,
+        threadsReplyId: publishReplyRes.id,
+        publishedAt: now.toISOString(),
+        threadUrl,
+      };
+    } catch (err: unknown) {
+      const safeMsg = sanitizeErrorMessage(err, "Failed to publish affiliate reply to Threads");
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "FAILED",
+          lastError: safeMsg,
+          updatedAt: now,
+        })
+        .where(eq(affiliateReplies.id, replyRecord.id));
+      throw err;
+    }
   }
 }
 

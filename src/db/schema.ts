@@ -220,7 +220,8 @@ export type MonetizationPlanStatus =
   | "COMPLETED"
   | "PARTIAL"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "PENDING_TRIGGER";
 
 export type MonetizationPlanSource =
   | "MANUAL"
@@ -235,7 +236,8 @@ export type AffiliateReplyStatus =
   | "PUBLISHED"
   | "AMBIGUOUS"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "PENDING_TRIGGER";
 
 export const postInsightSnapshots = pgTable("post_insight_snapshots", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

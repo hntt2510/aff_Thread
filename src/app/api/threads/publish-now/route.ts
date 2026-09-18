@@ -7,24 +7,54 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, accountId, mainPostText, firstReplyText, directAffiliateUrl, skipDelay } = body;
+    const {
+      postId,
+      accountId,
+      mainPostText,
+      firstReplyText,
+      directAffiliateUrl,
+      skipDelay,
+      immediateReply,
+      delayReplyMinutes,
+      manualReplyOnly,
+    } = body;
 
     // Mode 1: Publish an existing saved post by postId
     if (postId && typeof postId === "string") {
-      const result = await threadsPublisherService.publishPostWithReply(postId.trim(), {
-        skipDelay: Boolean(skipDelay),
+      if (immediateReply) {
+        const result = await threadsPublisherService.publishPostWithReply(postId.trim(), {
+          skipDelay: Boolean(skipDelay),
+        });
+        return NextResponse.json(result);
+      }
+
+      const result = await threadsPublisherService.publishBaitPost(postId.trim(), {
+        delayReplyMinutes: delayReplyMinutes ? Number(delayReplyMinutes) : undefined,
+        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : true,
       });
       return NextResponse.json(result);
     }
 
     // Mode 2: Direct publication from Composer with raw text and account
     if (accountId && mainPostText) {
-      const result = await threadsPublisherService.publishDirectly({
+      if (immediateReply) {
+        const result = await threadsPublisherService.publishDirectly({
+          accountId: accountId.trim(),
+          mainPostText: String(mainPostText).trim(),
+          firstReplyText: typeof firstReplyText === "string" ? firstReplyText.trim() : undefined,
+          directAffiliateUrl: typeof directAffiliateUrl === "string" ? directAffiliateUrl.trim() : undefined,
+          skipDelay: Boolean(skipDelay),
+        });
+        return NextResponse.json(result);
+      }
+
+      const result = await threadsPublisherService.publishDirectBait({
         accountId: accountId.trim(),
         mainPostText: String(mainPostText).trim(),
         firstReplyText: typeof firstReplyText === "string" ? firstReplyText.trim() : undefined,
         directAffiliateUrl: typeof directAffiliateUrl === "string" ? directAffiliateUrl.trim() : undefined,
-        skipDelay: Boolean(skipDelay),
+        delayReplyMinutes: delayReplyMinutes ? Number(delayReplyMinutes) : undefined,
+        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : true,
       });
       return NextResponse.json(result);
     }

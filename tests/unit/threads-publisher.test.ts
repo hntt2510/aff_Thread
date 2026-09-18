@@ -72,6 +72,36 @@ describe("Threads Publisher Service - Logic & Delay", () => {
       })
     ).rejects.toThrow("Main post exceeds Threads 500 characters limit");
   });
+
+  it("validates input in publishDirectBait", async () => {
+    await expect(
+      threadsPublisherService.publishDirectBait({
+        accountId: "",
+        mainPostText: "Valid text",
+      })
+    ).rejects.toThrow("Missing required accountId");
+
+    await expect(
+      threadsPublisherService.publishDirectBait({
+        accountId: "acc_1",
+        mainPostText: "",
+      })
+    ).rejects.toThrow("Main post text cannot be empty");
+
+    const longText = "a".repeat(501);
+    await expect(
+      threadsPublisherService.publishDirectBait({
+        accountId: "acc_1",
+        mainPostText: longText,
+      })
+    ).rejects.toThrow("Main post exceeds Threads 500 characters limit");
+  });
+
+  it("validates input in publishReplyNow", async () => {
+    await expect(
+      threadsPublisherService.publishReplyNow({})
+    ).rejects.toThrow("No affiliate reply comment found to publish");
+  });
 });
 
 describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", () => {
@@ -339,9 +369,280 @@ describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", ()
     const scheduled = await threadsPublisherService.schedulePost(post.id, futureDate);
 
     expect(scheduled.status).toBe("SCHEDULED");
-    expect(scheduled.scheduledPublishAt).toEqual(futureDate);
+    expect(scheduled.scheduledAt).toEqual(futureDate);
 
     const [dbPost] = await db.select().from(posts).where(eq(posts.id, post.id));
     expect(dbPost.status).toBe("SCHEDULED");
+  });
+
+  it("publishes bait post only and leaves reply in PENDING_TRIGGER", async () => {
+    const [account] = await db
+      .insert(threadsAccounts)
+      .values({
+        threadsUserId: "u_meta_bait_pending",
+        username: "bait_user",
+        displayName: "Bait User",
+        encryptedAccessToken: "enc_bait_1",
+        tokenIv: "iv_bait_1",
+        tokenAuthTag: "tag_bait_1",
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const [post] = await db
+      .insert(posts)
+      .values({
+        accountId: account.id,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: "Ai từng bị tình trạng này chưa mng?",
+        mediaType: "TEXT",
+        status: "DRAFT",
+      })
+      .returning();
+
+    const planResult = await monetizationService.createPlan({
+      postId: post.id,
+      replies: [
+        {
+          replyText: "Con áo này nè mng: https://s.shopee.vn/sampleBait",
+        },
+      ],
+    });
+
+    vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+      token: "valid_bait_token",
+      account: account as any,
+    });
+
+    const createTextSpy = vi
+      .spyOn(threadsClient, "createTextContainer")
+      .mockResolvedValue({ id: "bait_container_1" });
+
+    const publishContainerSpy = vi
+      .spyOn(threadsClient, "publishContainer")
+      .mockResolvedValue({ id: "published_bait_threads_id" });
+
+    const createReplySpy = vi.spyOn(threadsClient, "createReplyContainer");
+
+    const result = await threadsPublisherService.publishBaitPost(post.id, {
+      manualReplyOnly: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.threadsPostId).toBe("published_bait_threads_id");
+    expect(result.replyStatus).toBe("PENDING_TRIGGER");
+    expect(result.scheduledReplyAt).toBeNull();
+
+    // Verify main post published
+    expect(createTextSpy).toHaveBeenCalledTimes(1);
+    expect(publishContainerSpy).toHaveBeenCalledTimes(1);
+    expect(createReplySpy).not.toHaveBeenCalled();
+
+    // Verify DB reply is PENDING_TRIGGER
+    const [dbReply] = await db
+      .select()
+      .from(affiliateReplies)
+      .where(eq(affiliateReplies.id, planResult.replies[0].id));
+    expect(dbReply.status).toBe("PENDING_TRIGGER");
+    expect(dbReply.threadsReplyId).toBeNull();
+
+    // Verify DB plan is PENDING_TRIGGER
+    const [dbPlan] = await db
+      .select()
+      .from(monetizationPlans)
+      .where(eq(monetizationPlans.id, planResult.plan.id));
+    expect(dbPlan.status).toBe("PENDING_TRIGGER");
+  });
+
+  it("publishes bait post with delayed reply schedule (READY)", async () => {
+    const [account] = await db
+      .insert(threadsAccounts)
+      .values({
+        threadsUserId: "u_meta_bait_delay",
+        username: "delay_user",
+        displayName: "Delay User",
+        encryptedAccessToken: "enc_bait_2",
+        tokenIv: "iv_bait_2",
+        tokenAuthTag: "tag_bait_2",
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const [post] = await db
+      .insert(posts)
+      .values({
+        accountId: account.id,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: "Đồ công sở mặc cả ngày không nhăn...",
+        mediaType: "TEXT",
+        status: "DRAFT",
+      })
+      .returning();
+
+    const planResult = await monetizationService.createPlan({
+      postId: post.id,
+      replies: [
+        {
+          replyText: "Link em này ở đây nha: https://s.shopee.vn/sampleDelay",
+        },
+      ],
+    });
+
+    vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+      token: "valid_delay_token",
+      account: account as any,
+    });
+
+    vi.spyOn(threadsClient, "createTextContainer").mockResolvedValue({
+      id: "bait_delay_container",
+    });
+
+    vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({
+      id: "published_delay_threads_id",
+    });
+
+    const result = await threadsPublisherService.publishBaitPost(post.id, {
+      delayReplyMinutes: 60,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.replyStatus).toBe("READY");
+    expect(result.scheduledReplyAt).toBeDefined();
+
+    // Verify DB reply has scheduledAt ~60 mins in future
+    const [dbReply] = await db
+      .select()
+      .from(affiliateReplies)
+      .where(eq(affiliateReplies.id, planResult.replies[0].id));
+    expect(dbReply.status).toBe("READY");
+    expect(dbReply.scheduledAt).toBeDefined();
+    expect(new Date(dbReply.scheduledAt!).getTime()).toBeGreaterThan(Date.now() + 50 * 60 * 1000);
+  });
+
+  it("drops reply comment on demand (publishReplyNow)", async () => {
+    const [account] = await db
+      .insert(threadsAccounts)
+      .values({
+        threadsUserId: "u_meta_drop_reply",
+        username: "drop_user",
+        displayName: "Drop User",
+        encryptedAccessToken: "enc_drop_1",
+        tokenIv: "iv_drop_1",
+        tokenAuthTag: "tag_drop_1",
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const [post] = await db
+      .insert(posts)
+      .values({
+        accountId: account.id,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: "Story post live on threads",
+        threadsPostId: "live_threads_post_999",
+        mediaType: "TEXT",
+        status: "PUBLISHED",
+        publishedAt: new Date(),
+      })
+      .returning();
+
+    const planResult = await monetizationService.createPlan({
+      postId: post.id,
+      replies: [
+        {
+          replyText: "Con đầm này nè: https://s.shopee.vn/sampleDrop",
+        },
+      ],
+    });
+
+    vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+      token: "valid_drop_token",
+      account: account as any,
+    });
+
+    const createReplyContainerSpy = vi
+      .spyOn(threadsClient, "createReplyContainer")
+      .mockResolvedValue({ id: "reply_container_999" });
+
+    const publishContainerSpy = vi
+      .spyOn(threadsClient, "publishContainer")
+      .mockResolvedValue({ id: "published_reply_id_888" });
+
+    const replyId = planResult.replies[0].id;
+    const result = await threadsPublisherService.publishReplyNow({ replyId });
+
+    expect(result.success).toBe(true);
+    expect(result.threadsReplyId).toBe("published_reply_id_888");
+
+    // Verify Meta Threads client called targeting live_threads_post_999
+    expect(createReplyContainerSpy).toHaveBeenCalledWith(
+      "valid_drop_token",
+      "live_threads_post_999",
+      "Con đầm này nè: https://s.shopee.vn/sampleDrop",
+      "TEXT",
+      undefined,
+      "u_meta_drop_reply"
+    );
+
+    // Verify DB reply updated
+    const [dbReply] = await db
+      .select()
+      .from(affiliateReplies)
+      .where(eq(affiliateReplies.id, replyId));
+    expect(dbReply.status).toBe("PUBLISHED");
+    expect(dbReply.threadsReplyId).toBe("published_reply_id_888");
+
+    // Verify DB plan COMPLETED
+    const [dbPlan] = await db
+      .select()
+      .from(monetizationPlans)
+      .where(eq(monetizationPlans.id, planResult.plan.id));
+    expect(dbPlan.status).toBe("COMPLETED");
+  });
+
+  it("publishReplyNow rejects if parent post is not published yet", async () => {
+    const [account] = await db
+      .insert(threadsAccounts)
+      .values({
+        threadsUserId: "u_meta_unpub",
+        username: "unpub_user",
+        displayName: "Unpub User",
+        encryptedAccessToken: "enc_unpub",
+        tokenIv: "iv_unpub",
+        tokenAuthTag: "tag_unpub",
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const [post] = await db
+      .insert(posts)
+      .values({
+        accountId: account.id,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: "Unpublished post",
+        status: "DRAFT",
+      })
+      .returning();
+
+    const planResult = await monetizationService.createPlan({
+      postId: post.id,
+      replies: [
+        {
+          replyText: "Reply for unpublished post",
+        },
+      ],
+    });
+
+    await expect(
+      threadsPublisherService.publishReplyNow({ replyId: planResult.replies[0].id })
+    ).rejects.toThrow("Cannot drop reply: Parent thread post has not been published yet");
   });
 });

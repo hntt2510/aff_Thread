@@ -1,53 +1,25 @@
 import { settingsService } from "@/services/settings/settings.service";
 import { GoogleGenAI } from "@google/genai";
+import {
+  type ThreadArchetype,
+  type ThreadNiche,
+  type ThreadComposeOptions,
+  type ComposedThreadResult,
+  BANNED_MARKETING_WORDS,
+  sanitizeProductTitle,
+  inferNiche,
+  trimPostLength,
+  validateMarketingContent,
+} from "@/lib/threads/thread-composer-utils";
 
-export type ThreadArchetype = "REGRET_EXPERIENCE" | "UNPOPULAR_OPINION" | "CURATED_LIST";
-export type ThreadNiche = "SKINCARE" | "OFFICE_LIFESTYLE" | "FASHION";
-
-export interface ThreadComposeOptions {
-  productName: string;
-  category?: string;
-  niche?: ThreadNiche;
-  archetype?: ThreadArchetype;
-  productFeatures?: string[];
-  painPoints?: string[];
-  personalExperience?: string;
-  voucherCode?: string;
-  voucherDiscount?: string;
-  priceFormatted?: string;
-  affiliateUrl: string;
-}
-
-export interface ComposedThreadResult {
-  mainPost: string;
-  firstReply: string;
-  archetype: ThreadArchetype;
-  niche: ThreadNiche;
-  modelUsed: string;
-  generatedBy: "GEMINI" | "FALLBACK";
-  metadata: {
-    wordCount: number;
-    hasBannedWords: boolean;
-    bannedWordsFound: string[];
-    hasDiscussionQuestion: boolean;
-    hasVoucher: boolean;
-  };
-}
-
-export const BANNED_MARKETING_WORDS = [
-  "sản phẩm chất lượng vượt trội",
-  "mang lại hiệu quả thần kỳ",
-  "hãy mua ngay",
-  "đừng bỏ lỡ",
-  "vô cùng tiện lợi",
-  "cam kết chính hãng",
-  "nhanh tay kẻo lỡ",
-  "hàng đầu hiện nay",
-  "giải pháp tối ưu",
-  "sản phẩm hoàn hảo",
-  "siêu phẩm",
-  "cơ hội duy nhất",
-] as const;
+export type { ThreadArchetype, ThreadNiche, ThreadComposeOptions, ComposedThreadResult };
+export {
+  BANNED_MARKETING_WORDS,
+  sanitizeProductTitle,
+  inferNiche,
+  trimPostLength,
+  validateMarketingContent,
+};
 
 export class TextThreadComposerService {
   /**
@@ -77,6 +49,62 @@ export class TextThreadComposerService {
   }
 
   /**
+   * Programmatically trims a generated post to stay strictly <= maxChars (default 450 chars)
+   * while preserving the concluding interaction question.
+   */
+  trimPostLength(text: string, maxChars = 450): string {
+    if (!text || text.length <= maxChars) return text;
+
+    const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    if (paragraphs.length === 0) return text.slice(0, maxChars);
+
+    const lastPara = paragraphs[paragraphs.length - 1];
+    const hasQuestion = lastPara.includes("?");
+
+    let question = hasQuestion ? lastPara : "";
+    const bodyParas = hasQuestion ? paragraphs.slice(0, -1) : paragraphs;
+
+    if (question.length > 100) {
+      question = question.slice(0, 97) + "...?";
+    }
+
+    const maxBodyChars = maxChars - (question ? question.length + 2 : 0);
+
+    let currentBody = "";
+    for (const para of bodyParas) {
+      const candidate = currentBody ? `${currentBody}\n\n${para}` : para;
+      if (candidate.length <= maxBodyChars) {
+        currentBody = candidate;
+      } else {
+        const sentences = para.split(/(?<=[.!?])\s+/);
+        for (const sentence of sentences) {
+          const sentCandidate = currentBody ? `${currentBody} ${sentence}` : sentence;
+          if (sentCandidate.length <= maxBodyChars) {
+            currentBody = sentCandidate;
+          } else {
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (!currentBody && bodyParas.length > 0) {
+      const words = bodyParas[0].split(/\s+/);
+      let sliced = "";
+      for (const w of words) {
+        if ((sliced + " " + w).length <= maxBodyChars - 3) {
+          sliced = sliced ? `${sliced} ${w}` : w;
+        } else break;
+      }
+      currentBody = sliced ? `${sliced}...` : bodyParas[0].slice(0, Math.max(10, maxBodyChars - 3)) + "...";
+    }
+
+    const finalPost = question ? `${currentBody}\n\n${question}` : currentBody;
+    return finalPost.length <= maxChars ? finalPost : finalPost.slice(0, maxChars);
+  }
+
+  /**
    * Generates deterministic high-converting fallback content
    * when AI keys are not configured or external LLM fails.
    */
@@ -84,8 +112,17 @@ export class TextThreadComposerService {
     mainPost: string;
     firstReply: string;
   } {
+    const cleanProductName = sanitizeProductTitle(options.productName) || options.productName;
+    const detectedNiche = inferNiche(options.category, options.productName);
+    let niche: ThreadNiche = options.niche || detectedNiche;
+
+    if (detectedNiche === "FASHION" && niche === "SKINCARE") {
+      niche = "FASHION";
+    } else if (detectedNiche === "SKINCARE" && niche === "FASHION") {
+      niche = "SKINCARE";
+    }
+
     const archetype: ThreadArchetype = options.archetype || "REGRET_EXPERIENCE";
-    const niche: ThreadNiche = options.niche || "SKINCARE";
 
     let mainPost = "";
 
@@ -119,7 +156,20 @@ export class TextThreadComposerService {
       }
     }
 
-    let firstReply = `Nhiều bạn tò mò hỏi món tui dùng thì là em này nha: ${options.productName}. Trộm vía dùng ưng bụng và thấy đáng từng đồng luôn ấy.\n\n`;
+    if (mainPost.length > 450) {
+      mainPost = this.trimPostLength(mainPost, 450);
+    }
+
+    let productRef = cleanProductName;
+    if (niche === "FASHION") {
+      productRef = `con ${cleanProductName} này`;
+    } else if (niche === "OFFICE_LIFESTYLE") {
+      productRef = `em ${cleanProductName} này`;
+    } else {
+      productRef = `em ${cleanProductName} này`;
+    }
+
+    let firstReply = `Nhiều bạn tò mò hỏi thì món tui dùng trong bài là ${productRef} nha. Trộm vía dùng ưng bụng và thấy đáng từng đồng luôn ấy.\n\n`;
 
     if (options.voucherCode) {
       firstReply += `🎟️ Mã shop: ${options.voucherCode}${options.voucherDiscount ? ` (giảm ${options.voucherDiscount})` : ""}\n`;
@@ -140,8 +190,18 @@ export class TextThreadComposerService {
    * falling back smoothly to deterministic high-converting templates.
    */
   async composeThread(options: ThreadComposeOptions): Promise<ComposedThreadResult> {
+    const cleanProductName = sanitizeProductTitle(options.productName) || options.productName;
+    const detectedNiche = inferNiche(options.category, options.productName);
+    let niche: ThreadNiche = options.niche || detectedNiche;
+
+    // Strict safety check: auto-align niche to prevent mismatch hallucinations
+    if (detectedNiche === "FASHION" && niche === "SKINCARE") {
+      niche = "FASHION";
+    } else if (detectedNiche === "SKINCARE" && niche === "FASHION") {
+      niche = "SKINCARE";
+    }
+
     const archetype: ThreadArchetype = options.archetype || "REGRET_EXPERIENCE";
-    const niche: ThreadNiche = options.niche || "SKINCARE";
 
     // 1. Retrieve Gemini credentials from secure SettingsService
     const geminiApiKey = await settingsService.getSetting("GEMINI_API_KEY");
@@ -149,7 +209,11 @@ export class TextThreadComposerService {
     const modelToUse = configuredModel || "gemini-2.5-flash";
 
     if (!geminiApiKey) {
-      const fallback = this.generateDeterministicFallback(options);
+      const fallback = this.generateDeterministicFallback({
+        ...options,
+        productName: cleanProductName,
+        niche,
+      });
       const validation = this.validateContent(fallback.mainPost);
 
       return {
@@ -169,13 +233,14 @@ export class TextThreadComposerService {
       };
     }
 
-    // 2. Build Gemini prompt with strict Vietnamese copywriting guidelines
+    // 2. Build Gemini prompt with strict Vietnamese copywriting guidelines and 450-char constraint
     const prompt = `
 Bạn là một chuyên gia sáng tạo nội dung hàng đầu trên Meta Threads tại Việt Nam, chuyên viết bài storytelling chân thực, thu hút hàng chục nghìn lượt tương tác tự nhiên từ tệp người dùng Gen Z và Millennial.
 
 Nhiệm vụ của bạn: Viết một cặp bài đăng Threads gồm 2 phần:
 1. MAIN POST (Bài đăng chính):
-   - Định dạng: Thuần văn bản (pure text), độ dài khoảng 140 - 230 từ.
+   - HARD CONSTRAINT VỀ ĐỘ DÀI: BẮT BUỘC trong khoảng 250 đến 420 ký tự (Meta Threads giới hạn 500 ký tự). TUYỆT ĐỐI KHÔNG viết quá 450 ký tự.
+   - Bố cục: Tối đa 2 - 3 đoạn văn ngắn gọn, ngắt dòng thoáng, súc tích.
    - Giọng điệu: Tự nhiên, gần gũi, đời thường, như một người bạn đang tâm sự trên Threads ("mng", "tui", "nói thật", "chân ái", "u là trời", "khum").
    - Archetype yêu cầu: ${archetype} (Phong cách: ${
       archetype === "REGRET_EXPERIENCE"
@@ -184,16 +249,24 @@ Nhiệm vụ của bạn: Viết một cặp bài đăng Threads gồm 2 phần:
         ? "Góc nhìn trái chiều / Tranh luận lành mạnh"
         : "List đồ cứu rỗi cuộc đời / Curation 3 món tâm đắc"
     }).
-   - Chủ đề / Niche: ${niche}.
+   - Chủ đề / Niche BẮT BUỘC: ${niche}.
+   - QUY ĐỊNH NGHIÊM NGẶT THEO NICHE:
+     ${
+       niche === "FASHION"
+         ? "+ Chủ đề THỜI TRANG: Kể về trải nghiệm phối đồ, form dáng hack chân/eo, chất liệu vải, tự tin ra đường. TUYỆT ĐỐI KHÔNG nhắc đến mụn, da liễu hay dưỡng ẩm!"
+         : niche === "OFFICE_LIFESTYLE"
+         ? "+ Chủ đề VĂN PHÒNG / LIFESTYLE: Kể về nỗi ám ảnh đau lưng mỏi cổ, tư thế ngồi, setup bàn làm việc, góc làm việc truyền cảm hứng. KHÔNG nhắc mụn hay da dẻ!"
+         : "+ Chủ đề SKINCARE: Kể về phục hồi màng ẩm, tối giản chu trình dưỡng, cấp nước, chống nắng, dịu da."
+     }
    - Vấn đề / Nỗi đau: ${options.painPoints?.join(", ") || "vấn đề nan giải đời thường"}.
    - QUY TẮC BẮT BUỘC CHO MAIN POST:
-     + TUYỆT ĐỐI KHÔNG nhắc tên sản phẩm "${options.productName}", không nhắc thương hiệu, không nhắc giá tiền, không đính kèm bất kỳ đường link nào.
-     + KẾT BÀI BẮT BUỘC là một câu hỏi mở tự nhiên để kích thích thảo luận và tranh luận dưới phần bình luận (VD: "Có ai bị tình trạng này khum?", "Mng thấy sao về vụ này?").
-     + TUYỆT ĐỐI KHÔNG dùng văn phong bán hàng thô thiển, sáo rỗng. CẤM các cụm từ sau: ${BANNED_MARKETING_WORDS.map((w) => `"${w}"`).join(", ")}.
+     + TUYỆT ĐỐI KHÔNG nhắc tên sản phẩm "${cleanProductName}", không nhắc tên shop/thương hiệu, không nhắc giá tiền, không đính kèm bất kỳ đường link nào.
+     + KẾT BÀI BẮT BUỘC là đúng 1 câu hỏi mở ngắn gọn (dưới 60 ký tự) để kích thích thảo luận dưới phần bình luận (VD: "Có ai bị tình trạng này khum?", "Mng thấy sao về vụ này?").
+     + TUYỆT ĐỐI KHÔNG dùng văn phong bán hàng sáo rỗng. CẤM các cụm từ sau: ${BANNED_MARKETING_WORDS.map((w) => `"${w}"`).join(", ")}.
 
 2. FIRST REPLY (Bình luận đầu tiên - Monetization Payoff):
    - Giải đáp thắc mắc tự nhiên (như thể trả lời câu hỏi của độc giả).
-   - Tiết lộ tên sản phẩm: "${options.productName}".
+   - Tiết lộ tên sản phẩm một cách thân mật: "${cleanProductName}".
    - Nêu ngắn gọn lý do vì sao nó hiệu quả hoặc mẹo sử dụng thực tế.
    ${options.voucherCode ? `- Đính kèm mã voucher: "🎟️ Mã shop: ${options.voucherCode} ${options.voucherDiscount ? `(giảm ${options.voucherDiscount})` : ""}"` : ""}
    ${options.priceFormatted ? `- Đính kèm mức giá: "💵 Giá tham khảo: ~${options.priceFormatted}"` : ""}
@@ -201,7 +274,7 @@ Nhiệm vụ của bạn: Viết một cặp bài đăng Threads gồm 2 phần:
 
 Trả về định dạng JSON thuần túy (không thêm markdown backticks thừa nếu có thể, hoặc dùng JSON block chuẩn):
 {
-  "mainPost": "Nội dung main post thuần text...",
+  "mainPost": "Nội dung main post thuần text (250 - 420 ký tự)...",
   "firstReply": "Nội dung first reply kèm sản phẩm, voucher, link..."
 }
 `;
@@ -223,12 +296,18 @@ Trả về định dạng JSON thuần túy (không thêm markdown backticks th�
           let cleanedFirstReply = String(parsed.firstReply).trim();
 
           // Ensure product name was not accidentally leaked into main post
-          if (cleanedMainPost.toLowerCase().includes(options.productName.toLowerCase())) {
-            // Replace product name in main post with generic pronoun
-            cleanedMainPost = cleanedMainPost.replace(
-              new RegExp(options.productName, "gi"),
-              "món đồ này"
-            );
+          if (
+            cleanedMainPost.toLowerCase().includes(cleanProductName.toLowerCase()) ||
+            cleanedMainPost.toLowerCase().includes(options.productName.toLowerCase())
+          ) {
+            cleanedMainPost = cleanedMainPost
+              .replace(new RegExp(cleanProductName, "gi"), "món đồ này")
+              .replace(new RegExp(options.productName, "gi"), "món đồ này");
+          }
+
+          // Enforce hard character limit <= 450 chars
+          if (cleanedMainPost.length > 450) {
+            cleanedMainPost = this.trimPostLength(cleanedMainPost, 450);
           }
 
           // Ensure affiliate link is present in first reply
@@ -260,7 +339,11 @@ Trả về định dạng JSON thuần túy (không thêm markdown backticks th�
     }
 
     // Fallback if Gemini fails or returns invalid format
-    const fallback = this.generateDeterministicFallback(options);
+    const fallback = this.generateDeterministicFallback({
+      ...options,
+      productName: cleanProductName,
+      niche,
+    });
     const validation = this.validateContent(fallback.mainPost);
 
     return {

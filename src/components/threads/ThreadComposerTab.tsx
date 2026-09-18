@@ -21,11 +21,13 @@ import {
   HelpCircle,
   Rocket,
 } from "lucide-react";
-import type {
-  ThreadArchetype,
-  ThreadNiche,
-  ComposedThreadResult,
-} from "@/services/threads/text-thread-composer.service";
+import {
+  type ThreadArchetype,
+  type ThreadNiche,
+  type ComposedThreadResult,
+  sanitizeProductTitle,
+  inferNiche,
+} from "@/lib/threads/thread-composer-utils";
 
 interface AccountOption {
   id: string;
@@ -108,6 +110,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   const [publishingNow, setPublishingNow] = useState(false);
   const [publishStageMsg, setPublishStageMsg] = useState<string | null>(null);
   const [publishedThreadUrl, setPublishedThreadUrl] = useState<string | null>(null);
+  const [replyTimingMode, setReplyTimingMode] = useState<"DELAY_60" | "DELAY_120" | "MANUAL">("DELAY_60");
 
   // Fetch accounts on mount for drafting
   useEffect(() => {
@@ -127,20 +130,21 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   }, []);
 
   const handleQuickSelectPool = (item: any) => {
-    setProductName(item.product.title);
+    const rawTitle = item.product.title || "";
+    const cleanTitle = sanitizeProductTitle(rawTitle) || rawTitle;
+    setProductName(cleanTitle);
     setAffiliateUrl(item.offer?.affiliateUrl || item.product.productUrl || "");
-    if (item.product.category?.toLowerCase().includes("thời trang")) {
-      setNiche("FASHION");
-    } else if (item.product.category?.toLowerCase().includes("văn phòng") || item.product.category?.toLowerCase().includes("gia dụng")) {
-      setNiche("OFFICE_LIFESTYLE");
-    } else {
-      setNiche("SKINCARE");
-    }
+    const inferred = inferNiche(item.product.category, rawTitle);
+    setNiche(inferred);
   };
 
   const handleQuickSelectTopOffer = (offer: any) => {
-    setProductName(offer.productTitle);
+    const rawTitle = offer.productTitle || "";
+    const cleanTitle = sanitizeProductTitle(rawTitle) || rawTitle;
+    setProductName(cleanTitle);
     setAffiliateUrl(offer.affiliateUrl);
+    const inferred = inferNiche(undefined, rawTitle);
+    setNiche(inferred);
     if (offer.price > 0) {
       setPriceFormatted(new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(offer.price));
     }
@@ -280,29 +284,34 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       setError("Nội dung bài viết chính không được để trống.");
       return;
     }
-    if (editableMainPost.length > 500) {
-      setError(`Bài viết chính hiện có ${editableMainPost.length} ký tự, vượt quá giới hạn 500 ký tự của Threads. Vui lòng rút gọn bớt.`);
+    if (editableMainPost.length > 480) {
+      setError(`Bài viết chính hiện có ${editableMainPost.length} ký tự, vượt quá giới hạn 480 ký tự cho phép. Vui lòng rút gọn bớt trước khi xuất bản.`);
       return;
     }
 
-    let stageTimer: NodeJS.Timeout | null = null;
     try {
       setPublishingNow(true);
       setError(null);
       setPublishedThreadUrl(null);
-      setPublishStageMsg("Đang đăng bài viết chính lên Meta Threads...");
+      setPublishStageMsg("Đang chuẩn bị và xuất bản bài mồi lên Meta Threads...");
 
-      stageTimer = setTimeout(() => {
-        setPublishStageMsg("Đã tạo bài chính! Đang giữ nhịp tự nhiên 30-60s để gieo bình luận chốt deal...");
-      }, 3500);
+      const delayReplyMinutes =
+        replyTimingMode === "DELAY_60" ? 60 : replyTimingMode === "DELAY_120" ? 120 : undefined;
+      const manualReplyOnly = replyTimingMode === "MANUAL";
 
       const payload = draftSavedPostId
-        ? { postId: draftSavedPostId }
+        ? {
+            postId: draftSavedPostId,
+            delayReplyMinutes,
+            manualReplyOnly,
+          }
         : {
             accountId: selectedAccountId,
             mainPostText: editableMainPost.trim(),
             firstReplyText: editableFirstReply.trim() || undefined,
             directAffiliateUrl: affiliateUrl.trim() || undefined,
+            delayReplyMinutes,
+            manualReplyOnly,
           };
 
       const res = await fetch("/api/threads/publish-now", {
@@ -311,11 +320,10 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
         body: JSON.stringify(payload),
       });
 
-      if (stageTimer) clearTimeout(stageTimer);
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Không thể xuất bản bài viết lên Threads.");
+        throw new Error(data.error || "Không thể xuất bản bài mồi lên Threads.");
       }
 
       setPublishedThreadUrl(data.threadUrl);
@@ -324,7 +332,6 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
         setDraftSavedPostId(data.postId);
       }
     } catch (err: unknown) {
-      if (stageTimer) clearTimeout(stageTimer);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
@@ -657,8 +664,16 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
-                      {editableMainPost.length} / 500 ký tự
+                    <span
+                      className={`text-[11px] px-2.5 py-0.5 rounded-full font-mono transition-colors ${
+                        editableMainPost.length > 480
+                          ? "bg-rose-100 text-rose-700 font-bold border border-rose-300 animate-pulse"
+                          : editableMainPost.length > 420
+                          ? "bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {editableMainPost.length} / 450 ký tự {editableMainPost.length > 480 && "(Quá giới hạn!)"}
                     </span>
                     <button
                       type="button"
@@ -685,8 +700,19 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                   rows={6}
                   value={editableMainPost}
                   onChange={(e) => setEditableMainPost(e.target.value)}
-                  className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl p-3.5 text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 font-sans"
+                  className={`w-full text-xs sm:text-sm border rounded-xl p-3.5 leading-relaxed focus:outline-none focus:ring-2 font-sans transition-colors ${
+                    editableMainPost.length > 480
+                      ? "border-rose-300 focus:ring-rose-500 bg-rose-50/20 text-rose-950"
+                      : "border-slate-200 focus:ring-indigo-500 text-slate-800"
+                  }`}
                 />
+
+                {editableMainPost.length > 480 && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-medium">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Bài viết đang dài {editableMainPost.length} ký tự (vượt quá mức 480 ký tự cho phép). Vui lòng rút gọn bớt để đủ điều kiện đăng bài mồi.</span>
+                  </div>
+                )}
               </div>
 
               {/* First Reply Card */}
@@ -738,6 +764,51 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                   </select>
                 </div>
 
+                {/* Reply Seeding Timing Controls */}
+                <div className="space-y-1.5 pt-1 border-t border-slate-200/60">
+                  <label className="block text-[11px] font-semibold text-slate-700">
+                    Thời điểm gieo bình luận chốt deal (Reply Seeding):
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReplyTimingMode("DELAY_60")}
+                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                        replyTimingMode === "DELAY_60"
+                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="block font-medium">🕒 Sau 60 phút</span>
+                      <span className="text-[10px] text-slate-400 block font-normal">Đợi bài có view tự nhiên</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReplyTimingMode("DELAY_120")}
+                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                        replyTimingMode === "DELAY_120"
+                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="block font-medium">🕒 Sau 120 phút</span>
+                      <span className="text-[10px] text-slate-400 block font-normal">An toàn reach tối đa</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReplyTimingMode("MANUAL")}
+                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                        replyTimingMode === "MANUAL"
+                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="block font-medium">✋ Thả thủ công</span>
+                      <span className="text-[10px] text-slate-400 block font-normal">Bấm thả trong Posts khi viral</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2 border-t border-slate-200/80">
                   <button
                     type="button"
@@ -753,7 +824,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                     ) : (
                       <>
                         <Check className="w-4 h-4 text-emerald-600" />
-                        Lưu Draft & Tạo Kế Hoạch Reply
+                        Lưu Draft & Kế Hoạch Reply
                       </>
                     )}
                   </button>
@@ -761,18 +832,24 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                   <button
                     type="button"
                     onClick={handlePublishNow}
-                    disabled={savingDraft || publishingNow || !selectedAccountId}
+                    disabled={
+                      savingDraft ||
+                      publishingNow ||
+                      !selectedAccountId ||
+                      editableMainPost.length > 480 ||
+                      !editableMainPost.trim()
+                    }
                     className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
                   >
                     {publishingNow ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        Đang xuất bản...
+                        Đang đăng bài mồi...
                       </>
                     ) : (
                       <>
                         <Rocket className="w-4 h-4 text-amber-300" />
-                        🚀 Đăng ngay lên Threads (Publish Now)
+                        🚀 Đăng bài mồi ngay (Publish Bait Post)
                       </>
                     )}
                   </button>

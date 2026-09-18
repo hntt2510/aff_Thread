@@ -5,6 +5,7 @@ import {
   postMedia,
   postAffiliateLinks,
   affiliateLinks,
+  affiliateReplies,
   Post,
   PostMedia,
 } from "@/db/schema";
@@ -37,6 +38,15 @@ export interface PostWithAccount extends Post {
     destinationUrl: string;
     label: string | null;
   }[];
+  replySeeding?: {
+    replyId: string;
+    planId: string;
+    status: string;
+    replyText: string;
+    threadsReplyId: string | null;
+    scheduledAt: Date | null;
+    publishedAt: Date | null;
+  } | null;
 }
 
 export interface CreatePostOptions {
@@ -906,6 +916,46 @@ export class PostService {
       affiliateMap.set(a.postId, list);
     }
 
+    // Fetch first reply for these posts (if any)
+    const replyRows = await db
+      .select({
+        id: affiliateReplies.id,
+        postId: affiliateReplies.postId,
+        planId: affiliateReplies.monetizationPlanId,
+        status: affiliateReplies.status,
+        replyText: affiliateReplies.replyText,
+        threadsReplyId: affiliateReplies.threadsReplyId,
+        scheduledAt: affiliateReplies.scheduledAt,
+        publishedAt: affiliateReplies.publishedAt,
+      })
+      .from(affiliateReplies)
+      .where(inArray(affiliateReplies.postId, postIds))
+      .orderBy(asc(affiliateReplies.sequenceNo));
+
+    const replyMap = new Map<string, {
+      replyId: string;
+      planId: string;
+      status: string;
+      replyText: string;
+      threadsReplyId: string | null;
+      scheduledAt: Date | null;
+      publishedAt: Date | null;
+    }>();
+
+    for (const rep of replyRows) {
+      if (!replyMap.has(rep.postId)) {
+        replyMap.set(rep.postId, {
+          replyId: rep.id,
+          planId: rep.planId,
+          status: rep.status,
+          replyText: rep.replyText,
+          threadsReplyId: rep.threadsReplyId,
+          scheduledAt: rep.scheduledAt,
+          publishedAt: rep.publishedAt,
+        });
+      }
+    }
+
     return rows.map((r) => ({
       ...r.post,
       account: r.account?.id
@@ -925,6 +975,7 @@ export class PostService {
           },
       media: mediaMap.get(r.post.id) || [],
       affiliateLinks: affiliateMap.get(r.post.id) || [],
+      replySeeding: replyMap.get(r.post.id) || null,
     }));
   }
 

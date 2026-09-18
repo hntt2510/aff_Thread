@@ -1,10 +1,39 @@
 import { describe, it, expect } from "vitest";
 import {
   TextThreadComposerService,
+  sanitizeProductTitle,
+  inferNiche,
   BANNED_MARKETING_WORDS,
   type ThreadArchetype,
   type ThreadNiche,
 } from "@/services/threads/text-thread-composer.service";
+
+describe("TextThreadComposerService - Product Sanitization & Niche Inference", () => {
+  it("sanitizes Shopee SEO tags, brand suffixes, and buzzwords cleanly", () => {
+    const raw1 = "Chân Váy Kaki Dáng Ngắn Có Lót Trong BigSize Hannako - fashion Cl";
+    const clean1 = sanitizeProductTitle(raw1);
+    expect(clean1).toBe("chân váy kaki dáng ngắn có lót trong");
+
+    const raw2 = "[Mã BAMS50 giảm 50k] Serum Phục Hồi B5 La Roche-Posay 30ml - Chính Hãng 100%";
+    const clean2 = sanitizeProductTitle(raw2);
+    expect(clean2).toContain("serum phục hồi b5");
+    expect(clean2).not.toContain("mã bams50");
+    expect(clean2).not.toContain("chính hãng");
+
+    const raw3 = "Đệm Kê Lưng Công Thái Học Cao Cấp Chống Đau Mỏi Cột Sống | Shop Mall Official";
+    const clean3 = sanitizeProductTitle(raw3);
+    expect(clean3).toBe("đệm kê lưng công thái học chống đau mỏi cột sống");
+  });
+
+  it("infers niches accurately based on category and title keywords", () => {
+    expect(inferNiche("Thời trang nữ", "Chân váy chữ A")).toBe("FASHION");
+    expect(inferNiche("Quần áo", "Áo thun polo unisex")).toBe("FASHION");
+    expect(inferNiche("Văn phòng phẩm & Tiện ích", "Gối tựa lưng công thái học")).toBe("OFFICE_LIFESTYLE");
+    expect(inferNiche("Gia dụng", "Bình giữ nhiệt 800ml")).toBe("OFFICE_LIFESTYLE");
+    expect(inferNiche("Chăm sóc da mặt", "Kem chống nắng kiềm dầu")).toBe("SKINCARE");
+    expect(inferNiche("", "Serum trị mụn phục hồi B5")).toBe("SKINCARE");
+  });
+});
 
 describe("TextThreadComposerService - Content Validation & Ban Filter", () => {
   const service = new TextThreadComposerService();
@@ -31,6 +60,22 @@ describe("TextThreadComposerService - Content Validation & Ban Filter", () => {
   });
 });
 
+describe("TextThreadComposerService - 450-Char Limit & Trimming", () => {
+  const service = new TextThreadComposerService();
+
+  it("trims long posts > 450 chars down while preserving the concluding question", () => {
+    const longText = "Đoạn văn này rất dài để thử nghiệm thuật toán cắt tỉa ký tự của hệ thống Threads Composer. "
+      .repeat(8) + "\n\nTrong này có ai từng bị cảnh này giống tui khum?";
+
+    expect(longText.length).toBeGreaterThan(500);
+
+    const trimmed = service.trimPostLength(longText, 450);
+    expect(trimmed.length).toBeLessThanOrEqual(450);
+    expect(trimmed.trim().endsWith("?")).toBe(true);
+    expect(trimmed).toContain("Trong này có ai từng bị cảnh này giống tui khum?");
+  });
+});
+
 describe("TextThreadComposerService - Deterministic Fallback Generation", () => {
   const service = new TextThreadComposerService();
   const archetypes: ThreadArchetype[] = ["REGRET_EXPERIENCE", "UNPOPULAR_OPINION", "CURATED_LIST"];
@@ -38,12 +83,12 @@ describe("TextThreadComposerService - Deterministic Fallback Generation", () => 
 
   for (const arch of archetypes) {
     for (const niche of niches) {
-      it(`generates compliant fallback for archetype=${arch}, niche=${niche}`, () => {
-        const dummyProduct = "Kem Dưỡng B5 La Roche-Posay";
+      it(`generates compliant fallback strictly <= 450 chars for archetype=${arch}, niche=${niche}`, () => {
+        const dummyProduct = "Chân Váy Kaki Dáng Ngắn Có Lót Trong BigSize Hannako - fashion Cl";
         const dummyUrl = "https://s.shopee.vn/test12345";
         const voucherCode = "SHOPEE50K";
         const voucherDiscount = "50k";
-        const priceFormatted = "299.000đ";
+        const priceFormatted = "199.000đ";
 
         const fallback = service.generateDeterministicFallback({
           productName: dummyProduct,
@@ -55,27 +100,28 @@ describe("TextThreadComposerService - Deterministic Fallback Generation", () => 
           priceFormatted,
         });
 
-        // 1. Meta Threads character limit (< 500 chars)
-        expect(fallback.mainPost.length).toBeLessThanOrEqual(500);
-        expect(fallback.mainPost.length).toBeGreaterThan(50);
+        // 1. Meta Threads strict hard limit (<= 450 chars)
+        expect(fallback.mainPost.length).toBeLessThanOrEqual(450);
+        expect(fallback.mainPost.length).toBeGreaterThanOrEqual(250);
 
         // 2. Engagement discussion question at the end
         expect(fallback.mainPost.trim().endsWith("?")).toBe(true);
 
-        // 3. Main post MUST NOT leak product name or affiliate URL
-        expect(fallback.mainPost.toLowerCase()).not.toContain(dummyProduct.toLowerCase());
+        // 3. Main post MUST NOT leak raw product name or affiliate URL
+        expect(fallback.mainPost.toLowerCase()).not.toContain("chân váy kaki dáng ngắn có lót trong");
         expect(fallback.mainPost).not.toContain(dummyUrl);
 
         // 4. Main post has NO banned marketing words
         const validation = service.validateContent(fallback.mainPost);
         expect(validation.hasBannedWords).toBe(false);
 
-        // 5. First reply reveals product name, voucher, and affiliate link
-        expect(fallback.firstReply).toContain(dummyProduct);
+        // 5. First reply reveals sanitized product name naturally, voucher, and affiliate link
+        expect(fallback.firstReply).toContain("chân váy kaki dáng ngắn có lót trong");
+        expect(fallback.firstReply).not.toContain("BigSize Hannako - fashion Cl");
         expect(fallback.firstReply).toContain(dummyUrl);
         expect(fallback.firstReply).toContain("🎟️ Mã shop: SHOPEE50K");
         expect(fallback.firstReply).toContain("giảm 50k");
-        expect(fallback.firstReply).toContain("💵 Giá tham khảo: ~299.000đ");
+        expect(fallback.firstReply).toContain("💵 Giá tham khảo: ~199.000đ");
         expect(fallback.firstReply.length).toBeLessThanOrEqual(500);
       });
     }
@@ -85,31 +131,28 @@ describe("TextThreadComposerService - Deterministic Fallback Generation", () => 
 describe("TextThreadComposerService - Full Composition Workflow", () => {
   const service = new TextThreadComposerService();
 
-  it("falls back gracefully to deterministic templates when no Gemini key is set", async () => {
-    // Ensure no Gemini key in test environment
+  it("auto-aligns niche when product category contradicts user selection (prevents skincare for clothing)", async () => {
     const prevKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
 
+    // User mistakenly set niche: "SKINCARE" for a Fashion skirt
     const result = await service.composeThread({
-      productName: "Đệm Kê Lưng Công Thái Học",
-      affiliateUrl: "https://s.shopee.vn/ergonomic_back_support",
+      productName: "Chân Váy Kaki Dáng Ngắn Có Lót Trong BigSize Hannako - fashion Cl",
+      category: "Thời trang nữ",
+      affiliateUrl: "https://s.shopee.vn/fashion_skirt",
       archetype: "REGRET_EXPERIENCE",
-      niche: "OFFICE_LIFESTYLE",
-      voucherCode: "OFFICE20",
-      priceFormatted: "159.000đ",
+      niche: "SKINCARE",
     });
 
     expect(result.generatedBy).toBe("FALLBACK");
-    expect(result.mainPost).toBeDefined();
-    expect(result.mainPost.length).toBeLessThanOrEqual(500);
-    expect(result.mainPost.trim().endsWith("?")).toBe(true);
-    expect(result.metadata.hasBannedWords).toBe(false);
-    expect(result.metadata.hasDiscussionQuestion).toBe(true);
-    expect(result.metadata.hasVoucher).toBe(true);
-    expect(result.firstReply).toContain("Đệm Kê Lưng Công Thái Học");
-    expect(result.firstReply).toContain("https://s.shopee.vn/ergonomic_back_support");
+    // Niche must be auto-aligned to FASHION!
+    expect(result.niche).toBe("FASHION");
+    expect(result.mainPost.length).toBeLessThanOrEqual(450);
+    // Main post must talk about clothing/outfits, NOT skin or acne
+    expect(result.mainPost.toLowerCase()).not.toContain("mụn");
+    expect(result.mainPost.toLowerCase()).not.toContain("serum");
+    expect(result.firstReply).toContain("chân váy kaki dáng ngắn có lót trong");
 
-    // Restore
     if (prevKey) process.env.GEMINI_API_KEY = prevKey;
   });
 });

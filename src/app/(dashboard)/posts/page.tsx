@@ -25,6 +25,7 @@ import {
   Link2,
   ExternalLink,
   DollarSign,
+  MessageSquare,
 } from "lucide-react";
 import type { PostWithAccount } from "@/services/post.service";
 import { formatInTimezone, parseLocalDateTimeToUtc, DEFAULT_TIMEZONE } from "@/lib/date/timezone";
@@ -167,6 +168,35 @@ function PostsContent() {
       }
     } catch {
       setError("Network error while publishing post");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDropReplyNow = async (replyId: string, postId?: string) => {
+    setActionLoadingId(replyId);
+    setActionMessage(null);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/threads/publish-reply-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replyId, postId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to publish affiliate reply comment");
+      } else {
+        setActionMessage(
+          data.threadUrl
+            ? `Affiliate seeding comment dropped successfully! View at: ${data.threadUrl}`
+            : "Affiliate seeding comment dropped successfully on Threads!"
+        );
+        fetchPosts();
+      }
+    } catch {
+      setError("Network error while dropping affiliate comment");
     } finally {
       setActionLoadingId(null);
     }
@@ -441,6 +471,25 @@ function PostsContent() {
                         })}
                       </span>
                     )}
+
+                    {post.replySeeding && (
+                      post.replySeeding.status === "PENDING_TRIGGER" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200" title="Chờ bấm nút thả bình luận affiliate seeding">
+                          <MessageSquare className="w-3 h-3 text-amber-600" />
+                          Chờ thả bình luận
+                        </span>
+                      ) : post.replySeeding.status === "READY" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200" title="Đang hẹn giờ thả bình luận tự động">
+                          <Clock className="w-3 h-3 text-sky-600" />
+                          Hẹn thả: {post.replySeeding.scheduledAt ? formatInTimezone(post.replySeeding.scheduledAt) : "Ready"}
+                        </span>
+                      ) : post.replySeeding.status === "PUBLISHED" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200" title="Bình luận affiliate seeding đã live">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Bình luận live
+                        </span>
+                      ) : null
+                    )}
                   </div>
                 </div>
 
@@ -449,6 +498,33 @@ function PostsContent() {
                   <p className="text-sm text-slate-800 whitespace-pre-wrap bg-slate-50/70 p-3.5 rounded-lg border border-slate-100 font-normal">
                     {post.text}
                   </p>
+                )}
+
+                {/* Attached Seeding Reply Preview */}
+                {post.replySeeding && (
+                  <div className="bg-violet-50/60 border border-violet-100 rounded-lg p-3 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between font-semibold text-violet-900">
+                      <span className="flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-violet-600" />
+                        Affiliate Seeding Comment:
+                      </span>
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-violet-100 text-violet-700">
+                        {post.replySeeding.status === "PUBLISHED"
+                          ? "Live trên Threads"
+                          : post.replySeeding.status === "PENDING_TRIGGER"
+                          ? "Chờ bấm thả (Pending Drop)"
+                          : "Hẹn giờ thả"}
+                      </span>
+                    </div>
+                    <p className="text-slate-700 whitespace-pre-wrap font-normal">
+                      {post.replySeeding.replyText}
+                    </p>
+                    {post.replySeeding.threadsReplyId && (
+                      <span className="font-mono text-[10px] text-violet-600 block pt-0.5">
+                        Reply Threads ID: {post.replySeeding.threadsReplyId}
+                      </span>
+                    )}
+                  </div>
                 )}
 
                 {/* Attached Media Items Preview */}
@@ -663,13 +739,37 @@ function PostsContent() {
                     )}
 
                     {post.status === "PUBLISHED" && (
-                      <Link
-                        href={`/monetization?postId=${post.id}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-md font-medium text-xs transition-colors"
-                      >
-                        <DollarSign className="w-3 h-3 text-emerald-600" />
-                        Monetize
-                      </Link>
+                      <>
+                        {post.replySeeding &&
+                          !post.replySeeding.threadsReplyId &&
+                          (post.replySeeding.status === "PENDING_TRIGGER" ||
+                            post.replySeeding.status === "READY") && (
+                            <button
+                              type="button"
+                              disabled={actionLoadingId === post.replySeeding.replyId}
+                              onClick={() =>
+                                handleDropReplyNow(post.replySeeding!.replyId, post.id)
+                              }
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded-md font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                              title="Thả bình luận affiliate seeding ngay lập tức vào bài viết Threads"
+                            >
+                              {actionLoadingId === post.replySeeding.replyId ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <MessageSquare className="w-3 h-3" />
+                              )}
+                              💬 Thả bình luận ngay
+                            </button>
+                          )}
+
+                        <Link
+                          href={`/monetization?postId=${post.id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-md font-medium text-xs transition-colors"
+                        >
+                          <DollarSign className="w-3 h-3 text-emerald-600" />
+                          Monetize
+                        </Link>
+                      </>
                     )}
                   </div>
 
@@ -740,6 +840,30 @@ function PostsContent() {
                           <span className="font-semibold text-slate-600 block">Attempts:</span>
                           <span className="text-slate-500">{post.publishAttempts} / 3</span>
                         </div>
+                      )}
+                      {post.replySeeding && (
+                        <>
+                          <div>
+                            <span className="font-semibold text-slate-600 block">Seeding Reply ID:</span>
+                            <span className="font-mono text-slate-500 select-all">{post.replySeeding.replyId}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-600 block">Seeding Reply Status:</span>
+                            <span className="text-slate-500 font-medium">{post.replySeeding.status}</span>
+                          </div>
+                          {post.replySeeding.threadsReplyId && (
+                            <div>
+                              <span className="font-semibold text-slate-600 block">Threads Reply ID:</span>
+                              <span className="font-mono text-slate-500 select-all">{post.replySeeding.threadsReplyId}</span>
+                            </div>
+                          )}
+                          {post.replySeeding.scheduledAt && (
+                            <div>
+                              <span className="font-semibold text-slate-600 block">Reply Scheduled At:</span>
+                              <span className="text-slate-500">{new Date(post.replySeeding.scheduledAt).toISOString()}</span>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 
