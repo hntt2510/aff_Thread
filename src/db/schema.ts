@@ -542,3 +542,5 @@ export const shopeeSessions = pgTable("shopee_sessions", {
 export type ShopeeSession = typeof shopeeSessions.$inferSelect;
 export type NewShopeeSession = typeof shopeeSessions.$inferInsert;
 
+export * from "./schema/settings";
+

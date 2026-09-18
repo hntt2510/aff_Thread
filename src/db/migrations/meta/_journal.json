@@ -64,6 +64,13 @@
       "when": 1788970000000,
       "tag": "0008_shopee_session_cookies",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788980000000,
+      "tag": "0009_system_settings",
+      "breakpoints": true
     }
   ]
 }

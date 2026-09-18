@@ -13,6 +13,7 @@ export interface SchemaInspectionResult {
   is0006Applied: boolean;
   is0007Applied: boolean;
   is0008Applied: boolean;
+  is0009Applied: boolean;
   schemaObjects: {
     postsMediaType: boolean;
     postsProcessingStatus: boolean;
@@ -37,6 +38,7 @@ export interface SchemaInspectionResult {
     productDealObservationsTable: boolean;
     shopeeAcquisitionRunsTable: boolean;
     shopeeSessionsTable: boolean;
+    systemSettingsTable: boolean;
   };
   allObjectsExist: boolean;
 }
@@ -92,7 +94,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
         'post_media', 'media_assets', 'affiliate_campaigns', 'affiliate_links', 'post_affiliate_links', 'affiliate_clicks', 'scheduler_runs',
         'post_insight_snapshots', 'post_monetization_state', 'monetization_plans', 'affiliate_replies', 'affiliate_reply_links', 'monetization_runs',
         'affiliate_products', 'affiliate_product_offers', 'affiliate_performance_snapshots', 'weekly_product_pool', 'product_deal_observations',
-        'shopee_acquisition_runs', 'shopee_sessions'
+        'shopee_acquisition_runs', 'shopee_sessions', 'system_settings'
       )`
     );
     existingTables = (tableRows as unknown as Array<{ table_name: string }>).map((r) => r.table_name);
@@ -123,6 +125,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   const productDealObservationsTable = existingTables.includes("product_deal_observations");
   const shopeeAcquisitionRunsTable = existingTables.includes("shopee_acquisition_runs");
   const shopeeSessionsTable = existingTables.includes("shopee_sessions");
+  const systemSettingsTable = existingTables.includes("system_settings");
 
   const is0003Applied = appliedMigrations.some(
     (m) => m.created_at === "1788942355838" || m.hash.startsWith("d6a4cc0d")
@@ -148,6 +151,10 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     (m) => m.created_at === "1788970000000" || m.hash.startsWith("0d8a4702")
   );
 
+  const is0009Applied = appliedMigrations.some(
+    (m) => m.created_at === "1788980000000" || m.hash.startsWith("229dde70")
+  );
+
   const allObjectsExist =
     postsMediaType &&
     postsProcessingStatus &&
@@ -171,7 +178,8 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     weeklyProductPoolTable &&
     productDealObservationsTable &&
     shopeeAcquisitionRunsTable &&
-    shopeeSessionsTable;
+    shopeeSessionsTable &&
+    systemSettingsTable;
 
   return {
     appliedMigrations,
@@ -181,6 +189,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     is0006Applied,
     is0007Applied,
     is0008Applied,
+    is0009Applied,
     schemaObjects: {
       postsMediaType,
       postsProcessingStatus,
@@ -205,6 +214,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
       productDealObservationsTable,
       shopeeAcquisitionRunsTable,
       shopeeSessionsTable,
+      systemSettingsTable,
     },
     allObjectsExist,
   };

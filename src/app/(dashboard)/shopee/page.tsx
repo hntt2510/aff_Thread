@@ -43,8 +43,10 @@ import {
   SlidersHorizontal,
   Edit3,
   Video,
+  PenSquare,
 } from "lucide-react";
 import TrendDiscoveryTab from "@/components/trends/TrendDiscoveryTab";
+import ThreadComposerTab from "@/components/threads/ThreadComposerTab";
 
 function formatCommissionRate(raw: string | number | null | undefined): string {
   if (raw === null || raw === undefined) return "—";
@@ -625,6 +627,10 @@ function ShopeeDealsContent() {
     if (activeTab === "TOP_OFFERS") {
       fetchTopOffers();
     }
+    if (activeTab === "COMPOSER") {
+      fetchWeeklyPool();
+      fetchTopOffers();
+    }
   }, [
     activeTab,
     fetchWeeklyPool,
@@ -1127,6 +1133,7 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
       <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 pb-2 text-xs sm:text-sm font-medium">
         {[
           { id: "TOP_OFFERS", label: "Top Offers 🔥", icon: Flame },
+          { id: "COMPOSER", label: "Thread Composer ✍️", icon: PenSquare },
           { id: "WEEKLY_POOL", label: "Weekly Pool", icon: Layers },
           { id: "PRODUCTS", label: "Catalog Products", icon: Tag },
           { id: "DEALS", label: "Deals & Calculator", icon: Calculator },
@@ -2612,6 +2619,20 @@ Son kem lì Black Rouge Air Fit Velvet Tint,https://shopee.vn/product/606/707,ht
 
       {/* TAB: TREND DISCOVERY */}
       {activeTab === "TRENDS" && <TrendDiscoveryTab />}
+
+      {/* TAB: THREAD COMPOSER */}
+      {activeTab === "COMPOSER" && (
+        <ThreadComposerTab
+          poolProducts={poolItems}
+          topOffers={topOffers.map((o) => ({
+            productId: o.productId,
+            productTitle: o.productTitle,
+            affiliateUrl: o.affiliateUrl,
+            commissionRate: o.commissionRate,
+            price: o.price,
+          }))}
+        />
+      )}
     </div>
   );
 }

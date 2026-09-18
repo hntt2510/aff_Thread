@@ -21,6 +21,7 @@
     "test:worker": "npm run --prefix workers/shopee-session test"
   },
   "dependencies": {
+    "@google/genai": "^2.23.0",
     "cloudinary": "^2.11.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

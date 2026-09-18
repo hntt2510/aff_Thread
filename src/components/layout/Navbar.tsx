@@ -17,6 +17,7 @@ import {
   DollarSign,
   ShoppingBag,
   Video,
+  Settings,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { label: "Trend Discovery", href: "/shopee?tab=TRENDS", icon: Video },
   { label: "Affiliate", href: "/affiliate", icon: Link2 },
   { label: "Media", href: "/media", icon: ImageIcon },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 export default function Navbar() {

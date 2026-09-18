@@ -207,6 +207,16 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"shopee_sessions_status_idx\" ON \"shopee_sessions\" USING btree (\"status\");",
       "CREATE INDEX \"shopee_sessions_updated_at_idx\" ON \"shopee_sessions\" USING btree (\"updated_at\");"
     ]
+  },
+  {
+    "tag": "0009_system_settings",
+    "folderMillis": 1788980000000,
+    "bps": true,
+    "hash": "229dde704bb204ab825d97a073be33f260a5d6c62c4a70041b1aacd4f15db3ed",
+    "sql": [
+      "CREATE TABLE \"system_settings\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"key\" text NOT NULL,\n\t\"encrypted_value\" text NOT NULL,\n\t\"iv\" text NOT NULL,\n\t\"auth_tag\" text NOT NULL,\n\t\"description\" text,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"system_settings_key_unique\" UNIQUE(\"key\")\n);",
+      "CREATE INDEX \"system_settings_key_idx\" ON \"system_settings\" USING btree (\"key\");",
+      "CREATE INDEX \"system_settings_updated_at_idx\" ON \"system_settings\" USING btree (\"updated_at\");"
+    ]
   }
 ];
-
