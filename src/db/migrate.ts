@@ -157,7 +157,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
   );
 
   const is0010Applied = appliedMigrations.some(
-    (m) => m.created_at === "1788990000000" || m.hash.startsWith("1038df37")
+    (m) => m.created_at === "1788990000000" || m.hash.startsWith("2c7a23b6") || m.hash.startsWith("1038df37")
   );
 
   const allObjectsExist =

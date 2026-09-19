@@ -777,7 +777,7 @@ describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", ()
         reposts: null,
         quotes: null,
         shares: null,
-        rawMetrics: {},
+        rawMetricsJson: {},
       });
 
       vi.spyOn(threadsClient, "createReplyContainer").mockResolvedValue({ id: "reply_cnt_views" });
@@ -861,7 +861,7 @@ describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", ()
         reposts: null,
         quotes: null,
         shares: null,
-        rawMetrics: {},
+        rawMetricsJson: {},
       });
 
       vi.spyOn(threadsClient, "createReplyContainer").mockResolvedValue({ id: "reply_cnt_rep" });
@@ -942,7 +942,7 @@ describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", ()
         reposts: null,
         quotes: null,
         shares: null,
-        rawMetrics: {},
+        rawMetricsJson: {},
       });
 
       const publishReplySpy = vi.spyOn(threadsPublisherService, "publishReplyNow");
