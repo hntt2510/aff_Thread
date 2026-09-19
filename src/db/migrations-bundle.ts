@@ -218,5 +218,21 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
       "CREATE INDEX \"system_settings_key_idx\" ON \"system_settings\" USING btree (\"key\");",
       "CREATE INDEX \"system_settings_updated_at_idx\" ON \"system_settings\" USING btree (\"updated_at\");"
     ]
+  },
+  {
+    "tag": "0010_metric_triggered_replies",
+    "folderMillis": 1788990000000,
+    "bps": true,
+    "hash": "2c7a23b62c8e1972b7985be279120f47078f7b12592d6687a99769ea2971639f",
+    "sql": [
+      "ALTER TABLE \"monetization_plans\" ADD COLUMN IF NOT EXISTS \"trigger_mode\" text DEFAULT 'DELAY';",
+      "ALTER TABLE \"monetization_plans\" ADD COLUMN IF NOT EXISTS \"target_views\" integer DEFAULT 300;",
+      "ALTER TABLE \"monetization_plans\" ADD COLUMN IF NOT EXISTS \"target_replies\" integer DEFAULT 2;",
+      "ALTER TABLE \"monetization_plans\" ADD COLUMN IF NOT EXISTS \"max_wait_hours\" integer DEFAULT 12;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN IF NOT EXISTS \"trigger_mode\" text DEFAULT 'DELAY';",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN IF NOT EXISTS \"target_views\" integer DEFAULT 300;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN IF NOT EXISTS \"target_replies\" integer DEFAULT 2;",
+      "ALTER TABLE \"affiliate_replies\" ADD COLUMN IF NOT EXISTS \"max_wait_hours\" integer DEFAULT 12;"
+    ]
   }
 ];

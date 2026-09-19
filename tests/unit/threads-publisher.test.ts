@@ -645,4 +645,396 @@ describe.skipIf(!isDbReachable)("Threads Publisher Service - DB Integration", ()
       threadsPublisherService.publishReplyNow({ replyId: planResult.replies[0].id })
     ).rejects.toThrow("Cannot drop reply: Parent thread post has not been published yet");
   });
+
+  describe("Metric-Triggered Delayed Auto-Reply (checkAndTriggerMilestoneReplies)", () => {
+    it("publishBaitPost sets PENDING_METRIC_CHECK when triggerMode is ON_METRIC_REACHED", async () => {
+      const [account] = await db
+        .insert(threadsAccounts)
+        .values({
+          threadsUserId: "u_meta_milestone_acc",
+          username: "milestone_tester",
+          displayName: "Milestone Tester",
+          encryptedAccessToken: "enc_token_m",
+          tokenIv: "iv_m",
+          tokenAuthTag: "tag_m",
+          status: "ACTIVE",
+        })
+        .returning();
+
+      const [post] = await db
+        .insert(posts)
+        .values({
+          accountId: account.id,
+          accountThreadsUserId: account.threadsUserId,
+          accountUsername: account.username,
+          accountDisplayName: account.displayName,
+          text: "Bait post asking for empathy without solution?",
+          mediaType: "TEXT",
+          status: "DRAFT",
+        })
+        .returning();
+
+      const planResult = await monetizationService.createPlan({
+        postId: post.id,
+        replies: [
+          {
+            replyText: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em này...",
+          },
+        ],
+      });
+
+      vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+        token: "token_m_123",
+        account: account as any,
+      });
+
+      vi.spyOn(threadsClient, "createTextContainer").mockResolvedValue({ id: "container_m_main" });
+      vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({ id: "live_threads_m_post" });
+
+      const result = await threadsPublisherService.publishBaitPost(post.id, {
+        triggerMode: "ON_METRIC_REACHED",
+        targetViews: 300,
+        targetReplies: 2,
+        maxWaitHours: 12,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.replyStatus).toBe("PENDING_METRIC_CHECK");
+      expect(result.triggerMode).toBe("ON_METRIC_REACHED");
+      expect(result.targetViews).toBe(300);
+      expect(result.targetReplies).toBe(2);
+      expect(result.maxWaitHours).toBe(12);
+
+      const [dbReply] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, planResult.replies[0].id));
+      expect(dbReply.status).toBe("PENDING_METRIC_CHECK");
+      expect(dbReply.triggerMode).toBe("ON_METRIC_REACHED");
+      expect(dbReply.targetViews).toBe(300);
+      expect(dbReply.targetReplies).toBe(2);
+      expect(dbReply.maxWaitHours).toBe(12);
+    });
+
+    it("triggers reply publication when views threshold is reached (>= 300 views)", async () => {
+      const [account] = await db
+        .insert(threadsAccounts)
+        .values({
+          threadsUserId: "u_views_acc",
+          username: "views_tester",
+          displayName: "Views Tester",
+          encryptedAccessToken: "enc_views",
+          tokenIv: "iv_v",
+          tokenAuthTag: "tag_v",
+          status: "ACTIVE",
+        })
+        .returning();
+
+      const [post] = await db
+        .insert(posts)
+        .values({
+          accountId: account.id,
+          accountThreadsUserId: account.threadsUserId,
+          accountUsername: account.username,
+          accountDisplayName: account.displayName,
+          text: "Bait post with high views?",
+          threadsPostId: "live_post_views_123",
+          status: "PUBLISHED",
+          publishedAt: new Date(Date.now() - 2 * 3600 * 1000), // 2 hours ago
+        })
+        .returning();
+
+      const planResult = await monetizationService.createPlan({
+        postId: post.id,
+        replies: [
+          {
+            replyText: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em này...",
+          },
+        ],
+      });
+
+      const replyId = planResult.replies[0].id;
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "PENDING_METRIC_CHECK",
+          triggerMode: "ON_METRIC_REACHED",
+          targetViews: 300,
+          targetReplies: 2,
+          maxWaitHours: 12,
+        })
+        .where(eq(affiliateReplies.id, replyId));
+
+      vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+        token: "token_views_123",
+        account: account as any,
+      });
+
+      vi.spyOn(threadsClient, "getPostInsights").mockResolvedValue({
+        views: 350, // >= 300 target
+        likes: 15,
+        replies: 1,
+        reposts: null,
+        quotes: null,
+        shares: null,
+        rawMetrics: {},
+      });
+
+      vi.spyOn(threadsClient, "createReplyContainer").mockResolvedValue({ id: "reply_cnt_views" });
+      vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({ id: "published_reply_views" });
+
+      const checkResult = await threadsPublisherService.checkAndTriggerMilestoneReplies();
+
+      expect(checkResult.checkedCount).toBe(1);
+      expect(checkResult.triggeredCount).toBe(1);
+      expect(checkResult.expiredCount).toBe(0);
+      expect(checkResult.waitingCount).toBe(0);
+      expect(checkResult.details[0].status).toBe("TRIGGERED");
+      expect(checkResult.details[0].views).toBe(350);
+
+      const [updatedReply] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, replyId));
+      expect(updatedReply.status).toBe("PUBLISHED");
+      expect(updatedReply.threadsReplyId).toBe("published_reply_views");
+    });
+
+    it("triggers reply publication when replies threshold is reached (>= 2 replies)", async () => {
+      const [account] = await db
+        .insert(threadsAccounts)
+        .values({
+          threadsUserId: "u_replies_acc",
+          username: "replies_tester",
+          displayName: "Replies Tester",
+          encryptedAccessToken: "enc_rep",
+          tokenIv: "iv_r",
+          tokenAuthTag: "tag_r",
+          status: "ACTIVE",
+        })
+        .returning();
+
+      const [post] = await db
+        .insert(posts)
+        .values({
+          accountId: account.id,
+          accountThreadsUserId: account.threadsUserId,
+          accountUsername: account.username,
+          accountDisplayName: account.displayName,
+          text: "Bait post with lots of comments?",
+          threadsPostId: "live_post_replies_123",
+          status: "PUBLISHED",
+          publishedAt: new Date(Date.now() - 1 * 3600 * 1000), // 1 hour ago
+        })
+        .returning();
+
+      const planResult = await monetizationService.createPlan({
+        postId: post.id,
+        replies: [
+          {
+            replyText: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em này...",
+          },
+        ],
+      });
+
+      const replyId = planResult.replies[0].id;
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "PENDING_METRIC_CHECK",
+          triggerMode: "ON_METRIC_REACHED",
+          targetViews: 300,
+          targetReplies: 2,
+          maxWaitHours: 12,
+        })
+        .where(eq(affiliateReplies.id, replyId));
+
+      vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+        token: "token_rep_123",
+        account: account as any,
+      });
+
+      vi.spyOn(threadsClient, "getPostInsights").mockResolvedValue({
+        views: 80, // < 300 target
+        likes: 5,
+        replies: 3, // >= 2 target
+        reposts: null,
+        quotes: null,
+        shares: null,
+        rawMetrics: {},
+      });
+
+      vi.spyOn(threadsClient, "createReplyContainer").mockResolvedValue({ id: "reply_cnt_rep" });
+      vi.spyOn(threadsClient, "publishContainer").mockResolvedValue({ id: "published_reply_rep" });
+
+      const checkResult = await threadsPublisherService.checkAndTriggerMilestoneReplies();
+
+      expect(checkResult.checkedCount).toBe(1);
+      expect(checkResult.triggeredCount).toBe(1);
+      expect(checkResult.details[0].status).toBe("TRIGGERED");
+      expect(checkResult.details[0].replies).toBe(3);
+
+      const [updatedReply] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, replyId));
+      expect(updatedReply.status).toBe("PUBLISHED");
+    });
+
+    it("keeps waiting when metrics are not reached and within maxWaitHours", async () => {
+      const [account] = await db
+        .insert(threadsAccounts)
+        .values({
+          threadsUserId: "u_wait_acc",
+          username: "wait_tester",
+          displayName: "Wait Tester",
+          encryptedAccessToken: "enc_wait",
+          tokenIv: "iv_w",
+          tokenAuthTag: "tag_w",
+          status: "ACTIVE",
+        })
+        .returning();
+
+      const [post] = await db
+        .insert(posts)
+        .values({
+          accountId: account.id,
+          accountThreadsUserId: account.threadsUserId,
+          accountUsername: account.username,
+          accountDisplayName: account.displayName,
+          text: "Bait post just published 30 mins ago?",
+          threadsPostId: "live_post_waiting_123",
+          status: "PUBLISHED",
+          publishedAt: new Date(Date.now() - 30 * 60 * 1000), // 30 mins ago
+        })
+        .returning();
+
+      const planResult = await monetizationService.createPlan({
+        postId: post.id,
+        replies: [
+          {
+            replyText: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em này...",
+          },
+        ],
+      });
+
+      const replyId = planResult.replies[0].id;
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "PENDING_METRIC_CHECK",
+          triggerMode: "ON_METRIC_REACHED",
+          targetViews: 300,
+          targetReplies: 2,
+          maxWaitHours: 12,
+        })
+        .where(eq(affiliateReplies.id, replyId));
+
+      vi.spyOn(accountService, "getDecryptedTokenForAccount").mockResolvedValue({
+        token: "token_wait_123",
+        account: account as any,
+      });
+
+      vi.spyOn(threadsClient, "getPostInsights").mockResolvedValue({
+        views: 45, // < 300
+        likes: 2,
+        replies: 0, // < 2
+        reposts: null,
+        quotes: null,
+        shares: null,
+        rawMetrics: {},
+      });
+
+      const publishReplySpy = vi.spyOn(threadsPublisherService, "publishReplyNow");
+
+      const checkResult = await threadsPublisherService.checkAndTriggerMilestoneReplies();
+
+      expect(checkResult.checkedCount).toBe(1);
+      expect(checkResult.triggeredCount).toBe(0);
+      expect(checkResult.waitingCount).toBe(1);
+      expect(checkResult.expiredCount).toBe(0);
+      expect(checkResult.details[0].status).toBe("WAITING");
+      expect(publishReplySpy).not.toHaveBeenCalled();
+
+      const [updatedReply] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, replyId));
+      expect(updatedReply.status).toBe("PENDING_METRIC_CHECK");
+    });
+
+    it("marks reply as EXPIRED when post age exceeds maxWaitHours without reaching metrics", async () => {
+      const [account] = await db
+        .insert(threadsAccounts)
+        .values({
+          threadsUserId: "u_expired_acc",
+          username: "expired_tester",
+          displayName: "Expired Tester",
+          encryptedAccessToken: "enc_exp",
+          tokenIv: "iv_e",
+          tokenAuthTag: "tag_e",
+          status: "ACTIVE",
+        })
+        .returning();
+
+      const [post] = await db
+        .insert(posts)
+        .values({
+          accountId: account.id,
+          accountThreadsUserId: account.threadsUserId,
+          accountUsername: account.username,
+          accountDisplayName: account.displayName,
+          text: "Bait post published 14 hours ago with no traction?",
+          threadsPostId: "live_post_expired_123",
+          status: "PUBLISHED",
+          publishedAt: new Date(Date.now() - 14 * 3600 * 1000), // 14 hours ago (> 12h)
+        })
+        .returning();
+
+      const planResult = await monetizationService.createPlan({
+        postId: post.id,
+        replies: [
+          {
+            replyText: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em này...",
+          },
+        ],
+      });
+
+      const replyId = planResult.replies[0].id;
+      await db
+        .update(affiliateReplies)
+        .set({
+          status: "PENDING_METRIC_CHECK",
+          triggerMode: "ON_METRIC_REACHED",
+          targetViews: 300,
+          targetReplies: 2,
+          maxWaitHours: 12,
+        })
+        .where(eq(affiliateReplies.id, replyId));
+
+      const getInsightsSpy = vi.spyOn(threadsClient, "getPostInsights");
+      const publishReplySpy = vi.spyOn(threadsPublisherService, "publishReplyNow");
+
+      const checkResult = await threadsPublisherService.checkAndTriggerMilestoneReplies();
+
+      expect(checkResult.checkedCount).toBe(1);
+      expect(checkResult.triggeredCount).toBe(0);
+      expect(checkResult.expiredCount).toBe(1);
+      expect(checkResult.details[0].status).toBe("EXPIRED");
+      expect(getInsightsSpy).not.toHaveBeenCalled();
+      expect(publishReplySpy).not.toHaveBeenCalled();
+
+      const [updatedReply] = await db
+        .select()
+        .from(affiliateReplies)
+        .where(eq(affiliateReplies.id, replyId));
+      expect(updatedReply.status).toBe("EXPIRED");
+
+      const [updatedPlan] = await db
+        .select()
+        .from(monetizationPlans)
+        .where(eq(monetizationPlans.id, planResult.plan.id));
+      expect(updatedPlan.status).toBe("EXPIRED");
+    });
+  });
 });

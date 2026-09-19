@@ -99,5 +99,23 @@ describe("Migrations Bundle Integrity", () => {
     expect(allStatements).toContain('cookies_auth_tag');
     expect(allStatements).toContain('status');
   });
+
+  it("includes migration 0009 with system_settings table", () => {
+    const mig0009 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0009_system_settings");
+    expect(mig0009).toBeDefined();
+
+    const allStatements = mig0009!.sql.join("\n");
+    expect(allStatements).toContain('CREATE TABLE "system_settings"');
+  });
+
+  it("includes migration 0010 with metric triggered replies fields", () => {
+    const mig0010 = BUNDLED_MIGRATIONS.find((m) => m.tag === "0010_metric_triggered_replies");
+    expect(mig0010).toBeDefined();
+
+    const allStatements = mig0010!.sql.join("\n");
+    expect(allStatements).toContain('"target_views"');
+    expect(allStatements).toContain('"target_replies"');
+    expect(allStatements).toContain('"max_wait_hours"');
+  });
 });
 

@@ -46,6 +46,17 @@ export const BANNED_MARKETING_WORDS = [
   "cơ hội duy nhất",
 ] as const;
 
+export const BANNED_BAIT_SOLUTION_WORDS = [
+  "chân ái",
+  "tìm ra chân ái",
+  "tìm ra giải pháp",
+  "cứu cánh đời tui",
+  "cuộc đời sang trang",
+  "đổi sang món này",
+  "đã giải quyết được",
+  "đã tìm được",
+] as const;
+
 /**
  * Strips Shopee SEO junk, promotional tags, brand suffixes, and buzzwords
  * to produce clean, natural conversational product names.
@@ -211,8 +222,9 @@ export function trimPostLength(text: string, maxChars = 450): string {
 
 /**
  * Scans text for banned marketing buzzwords and calculates word count.
+ * When isMainPost is true, also flags premature solution revelations or boasting ("chân ái").
  */
-export function validateMarketingContent(text: string): {
+export function validateMarketingContent(text: string, isMainPost = false): {
   hasBannedWords: boolean;
   bannedWordsFound: string[];
   wordCount: number;
@@ -223,6 +235,14 @@ export function validateMarketingContent(text: string): {
   for (const banned of BANNED_MARKETING_WORDS) {
     if (lower.includes(banned.toLowerCase())) {
       bannedWordsFound.push(banned);
+    }
+  }
+
+  if (isMainPost) {
+    for (const baitBanned of BANNED_BAIT_SOLUTION_WORDS) {
+      if (lower.includes(baitBanned.toLowerCase())) {
+        bannedWordsFound.push(baitBanned);
+      }
     }
   }
 

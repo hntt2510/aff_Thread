@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
       immediateReply,
       delayReplyMinutes,
       manualReplyOnly,
+      triggerMode,
+      targetViews,
+      targetReplies,
+      maxWaitHours,
     } = body;
 
     // Mode 1: Publish an existing saved post by postId
@@ -30,7 +34,11 @@ export async function POST(req: NextRequest) {
 
       const result = await threadsPublisherService.publishBaitPost(postId.trim(), {
         delayReplyMinutes: delayReplyMinutes ? Number(delayReplyMinutes) : undefined,
-        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : true,
+        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : undefined,
+        triggerMode: triggerMode as "DELAY" | "MANUAL" | "ON_METRIC_REACHED" | undefined,
+        targetViews: targetViews !== undefined ? Number(targetViews) : undefined,
+        targetReplies: targetReplies !== undefined ? Number(targetReplies) : undefined,
+        maxWaitHours: maxWaitHours !== undefined ? Number(maxWaitHours) : undefined,
       });
       return NextResponse.json(result);
     }
@@ -54,7 +62,11 @@ export async function POST(req: NextRequest) {
         firstReplyText: typeof firstReplyText === "string" ? firstReplyText.trim() : undefined,
         directAffiliateUrl: typeof directAffiliateUrl === "string" ? directAffiliateUrl.trim() : undefined,
         delayReplyMinutes: delayReplyMinutes ? Number(delayReplyMinutes) : undefined,
-        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : true,
+        manualReplyOnly: manualReplyOnly !== undefined ? Boolean(manualReplyOnly) : undefined,
+        triggerMode: triggerMode as "DELAY" | "MANUAL" | "ON_METRIC_REACHED" | undefined,
+        targetViews: targetViews !== undefined ? Number(targetViews) : undefined,
+        targetReplies: targetReplies !== undefined ? Number(targetReplies) : undefined,
+        maxWaitHours: maxWaitHours !== undefined ? Number(maxWaitHours) : undefined,
       });
       return NextResponse.json(result);
     }

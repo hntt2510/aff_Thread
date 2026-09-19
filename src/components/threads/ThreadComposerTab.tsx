@@ -110,7 +110,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   const [publishingNow, setPublishingNow] = useState(false);
   const [publishStageMsg, setPublishStageMsg] = useState<string | null>(null);
   const [publishedThreadUrl, setPublishedThreadUrl] = useState<string | null>(null);
-  const [replyTimingMode, setReplyTimingMode] = useState<"DELAY_60" | "DELAY_120" | "MANUAL">("DELAY_60");
+  const [replyTimingMode, setReplyTimingMode] = useState<"DELAY_60" | "DELAY_120" | "MANUAL" | "METRIC_MILESTONE">("DELAY_60");
 
   // Fetch accounts on mount for drafting
   useEffect(() => {
@@ -293,17 +293,29 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       setPublishingNow(true);
       setError(null);
       setPublishedThreadUrl(null);
-      setPublishStageMsg("Đang chuẩn bị và xuất bản bài mồi lên Meta Threads...");
+      const triggerMode =
+        replyTimingMode === "METRIC_MILESTONE"
+          ? "ON_METRIC_REACHED"
+          : replyTimingMode === "MANUAL"
+          ? "MANUAL"
+          : "DELAY";
 
       const delayReplyMinutes =
         replyTimingMode === "DELAY_60" ? 60 : replyTimingMode === "DELAY_120" ? 120 : undefined;
       const manualReplyOnly = replyTimingMode === "MANUAL";
+      const targetViews = replyTimingMode === "METRIC_MILESTONE" ? 300 : undefined;
+      const targetReplies = replyTimingMode === "METRIC_MILESTONE" ? 2 : undefined;
+      const maxWaitHours = replyTimingMode === "METRIC_MILESTONE" ? 12 : undefined;
 
       const payload = draftSavedPostId
         ? {
             postId: draftSavedPostId,
             delayReplyMinutes,
             manualReplyOnly,
+            triggerMode,
+            targetViews,
+            targetReplies,
+            maxWaitHours,
           }
         : {
             accountId: selectedAccountId,
@@ -312,6 +324,10 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             directAffiliateUrl: affiliateUrl.trim() || undefined,
             delayReplyMinutes,
             manualReplyOnly,
+            triggerMode,
+            targetViews,
+            targetReplies,
+            maxWaitHours,
           };
 
       const res = await fetch("/api/threads/publish-now", {
@@ -769,7 +785,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                   <label className="block text-[11px] font-semibold text-slate-700">
                     Thời điểm gieo bình luận chốt deal (Reply Seeding):
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => setReplyTimingMode("DELAY_60")}
@@ -793,6 +809,18 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                     >
                       <span className="block font-medium">🕒 Sau 120 phút</span>
                       <span className="text-[10px] text-slate-400 block font-normal">An toàn reach tối đa</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReplyTimingMode("METRIC_MILESTONE")}
+                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                        replyTimingMode === "METRIC_MILESTONE"
+                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="block font-medium">🎯 Khi đạt mốc</span>
+                      <span className="text-[10px] text-slate-400 block font-normal">≥ 300 views hoặc ≥ 2 cmt</span>
                     </button>
                     <button
                       type="button"

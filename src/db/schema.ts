@@ -221,7 +221,9 @@ export type MonetizationPlanStatus =
   | "PARTIAL"
   | "FAILED"
   | "CANCELLED"
-  | "PENDING_TRIGGER";
+  | "PENDING_TRIGGER"
+  | "PENDING_METRIC_CHECK"
+  | "EXPIRED";
 
 export type MonetizationPlanSource =
   | "MANUAL"
@@ -237,7 +239,9 @@ export type AffiliateReplyStatus =
   | "AMBIGUOUS"
   | "FAILED"
   | "CANCELLED"
-  | "PENDING_TRIGGER";
+  | "PENDING_TRIGGER"
+  | "PENDING_METRIC_CHECK"
+  | "EXPIRED";
 
 export const postInsightSnapshots = pgTable("post_insight_snapshots", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -282,6 +286,10 @@ export const monetizationPlans = pgTable("monetization_plans", {
   source: text("source").$type<MonetizationPlanSource>().notNull().default("MANUAL"),
   scoreAtCreation: integer("score_at_creation"),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  triggerMode: text("trigger_mode").$type<"DELAY" | "MANUAL" | "ON_METRIC_REACHED">().default("DELAY"),
+  targetViews: integer("target_views").default(300),
+  targetReplies: integer("target_replies").default(2),
+  maxWaitHours: integer("max_wait_hours").default(12),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -304,6 +312,10 @@ export const affiliateReplies = pgTable("affiliate_replies", {
   lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
   lastError: text("last_error"),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  triggerMode: text("trigger_mode").$type<"DELAY" | "MANUAL" | "ON_METRIC_REACHED">().default("DELAY"),
+  targetViews: integer("target_views").default(300),
+  targetReplies: integer("target_replies").default(2),
+  maxWaitHours: integer("max_wait_hours").default(12),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   nextEligibleAt: timestamp("next_eligible_at", { withTimezone: true }),
   dealObservationId: text("deal_observation_id"),

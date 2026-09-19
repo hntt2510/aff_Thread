@@ -14,6 +14,7 @@ export interface SchemaInspectionResult {
   is0007Applied: boolean;
   is0008Applied: boolean;
   is0009Applied: boolean;
+  is0010Applied: boolean;
   schemaObjects: {
     postsMediaType: boolean;
     postsProcessingStatus: boolean;
@@ -155,6 +156,10 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     (m) => m.created_at === "1788980000000" || m.hash.startsWith("229dde70")
   );
 
+  const is0010Applied = appliedMigrations.some(
+    (m) => m.created_at === "1788990000000" || m.hash.startsWith("1038df37")
+  );
+
   const allObjectsExist =
     postsMediaType &&
     postsProcessingStatus &&
@@ -190,6 +195,7 @@ export async function inspectDatabaseSchema(): Promise<SchemaInspectionResult> {
     is0007Applied,
     is0008Applied,
     is0009Applied,
+    is0010Applied,
     schemaObjects: {
       postsMediaType,
       postsProcessingStatus,

@@ -6,6 +6,7 @@ import {
   type ThreadComposeOptions,
   type ComposedThreadResult,
   BANNED_MARKETING_WORDS,
+  BANNED_BAIT_SOLUTION_WORDS,
   sanitizeProductTitle,
   inferNiche,
   trimPostLength,
@@ -15,6 +16,7 @@ import {
 export type { ThreadArchetype, ThreadNiche, ThreadComposeOptions, ComposedThreadResult };
 export {
   BANNED_MARKETING_WORDS,
+  BANNED_BAIT_SOLUTION_WORDS,
   sanitizeProductTitle,
   inferNiche,
   trimPostLength,
@@ -24,28 +26,14 @@ export {
 export class TextThreadComposerService {
   /**
    * Scans text for banned marketing buzzwords and calculates word count.
+   * When isMainPost is true, also checks for premature solution reveals ("chân ái").
    */
-  validateContent(text: string): {
+  validateContent(text: string, isMainPost = false): {
     hasBannedWords: boolean;
     bannedWordsFound: string[];
     wordCount: number;
   } {
-    const lower = (text || "").toLowerCase();
-    const bannedWordsFound: string[] = [];
-
-    for (const banned of BANNED_MARKETING_WORDS) {
-      if (lower.includes(banned.toLowerCase())) {
-        bannedWordsFound.push(banned);
-      }
-    }
-
-    const words = (text || "").trim().split(/\s+/).filter(Boolean);
-
-    return {
-      hasBannedWords: bannedWordsFound.length > 0,
-      bannedWordsFound,
-      wordCount: words.length,
-    };
+    return validateMarketingContent(text, isMainPost);
   }
 
   /**
@@ -128,31 +116,31 @@ export class TextThreadComposerService {
 
     if (archetype === "REGRET_EXPERIENCE") {
       if (niche === "SKINCARE") {
-        mainPost = `Nói thật là tui hối hận vì không tìm hiểu vụ này sớm hơn...\n\nHồi trước da tui cứ lên mụn ẩn liên tục mà không rõ lý do, đắp thêm bao nhiêu serum đắt tiền da càng biểu tình. Sau mới biết là do bước làm sạch và phục hồi màng ẩm bị sai. Đổi sang routine tối giản, tập trung đúng món chân ái phục hồi thì da êm ru trở lại, trộm vía đỡ stress hẳn.\n\nTrong này có ai từng bị cảnh càng skincare kỹ da càng toang giống tui khum? Mng chia sẻ routine với?`;
+        mainPost = `Nói thật là tui ám ảnh cái đợt da bùng mụn mất kiểm soát kinh khủng...\n\nCứ đến mùa ẩm ương là mụn ẩn với mụn viêm thi nhau nổi, càng rửa mặt kỹ với thoa đủ thứ kem đặc trị thì da càng đỏ rát, bong tróc biểu tình. Ra đường lúc nào cũng phải đeo khẩu trang kín mít vì tự ti, gặp ai cũng bị hỏi sao đợt này da tệ thế.\n\nCó ai từng rơi vào cảnh càng cố skincare da lại càng toang giống tui khum? Vượt qua kiểu gì vậy mng?`;
       } else if (niche === "OFFICE_LIFESTYLE") {
-        mainPost = `Nghĩ lại vẫn thấy tiếc, biết thế tui sắm cái này từ đợt mới đi làm văn phòng cho đỡ khổ...\n\nCứ ngồi làm việc 8 tiếng là cổ vai gáy với thắt lưng ê ẩm không chịu nổi, chiều nào về cũng mệt rã rời. Cứ tưởng do mình lười vận động, đến khi setup lại góc ngồi với món phụ kiện công thái học này mới thấy cuộc đời sang trang. Ngồi cả ngày mà lưng thẳng tự nhiên, không bị gù hay mỏi nữa.\n\nỞ đây có ai ngày nào cũng chiến đấu với chứng đau lưng mỏi cổ giống tui khum?`;
+        mainPost = `Ám ảnh kinh hoàng của dân văn phòng ngồi máy tính 8 tiếng một ngày...\n\nSáng đi làm hừng hực khí thế mà đến tầm 3h chiều là thắt lưng với cổ vai gáy ê ẩm như có tạ đè, ngồi không yên mà đứng cũng không xong. Chiều tối về nhà chỉ muốn nằm bẹp một chỗ không làm nổi việc gì khác, cảm giác người già trước tuổi thực sự.\n\nMng làm công sở có ai bị tình trạng đau lưng mỏi cổ liên tục này khum, chữa kiểu gì cho đỡ vậy các bác?`;
       } else {
         // FASHION
-        mainPost = `Biết thế tui đổi gu sớm hơn chứ không phí cả đống tiền mua quần áo linh tinh rồi vứt xó...\n\nHồi trước cứ thấy trend gì là đâm đầu vào mua, kết quả tủ đồ chật ních mà sáng nào mở ra cũng thấy 'không có gì để mặc'. Mấy đồ cầu kỳ mặc 1-2 lần là chán. Sau tui quyết định thanh lý hết, chỉ giữ lại mấy món basic form chuẩn, phối gì cũng hợp. Ra đường tút tát 5 phút là xong mà trông vừa thanh lịch vừa có gu hơn hẳn.\n\nMng có hay mua đồ theo trend xong bỏ xó giống tui khum?`;
+        mainPost = `Nói thật là tui ám ảnh cái vụ mặc đồ ngắn ra đường lắm mng ơi...\n\nCứ mặc váy ngắn hay quần short là đi đứng mất tự nhiên hẳn, vừa bước đi vừa lo ngay ngáy sợ hớ hênh. Nhất là mấy bữa gió thổi qua cứ phải lấy tay giữ miết, rồi lúc lên xuống xe máy cũng lúng ta lúng túng dã man.\n\nCó ai từng bị cái cảm giác đi đâu cũng nơm nớp lo giữ đồ như tui khum, đi đứng sao cho đỡ lo vậy mng?`;
       }
     } else if (archetype === "UNPOPULAR_OPINION") {
       if (niche === "SKINCARE") {
-        mainPost = `Góc nhìn hơi trái chiều một tí nhưng mng cứ thần thánh hóa treatment đắt đỏ chứ tui thấy đồ bình dân mới là chân ái...\n\nNhiều người nghĩ bỏ cả triệu bạc mua đặc trị nồng độ cao mới hết mụn. Nhưng da chưa khỏe mà cứ tống acid với retinol vào là toang ngay. Bản thân tui từng tốn đống tiền cho đồ high-end, cuối cùng lại được cứu bởi một em cấp ẩm làm dịu cực lành tính giá học sinh.\n\nMng nghĩ sao về vụ này? Có ai chuộng đồ dưỡng bình dân mà hiệu quả giống tui khum?`;
+        mainPost = `Không biết có ai bị giống tui không, chứ tui thấy skincare nhiều bước quá chỉ tổ làm da thêm bí bách...\n\nNgày trước tui đu trend layer 7749 bước, từ toner, essence, 3 loại serum đến kem dưỡng dày cộp. Kết quả là bít tắc lỗ chân lông, da nổi sần sùi tùm lum mà tốn cả đống tiền. Càng cố chấp bôi trét thì da càng yếu đi thấy rõ.\n\nCó ai từng thử đủ cách dưỡng mà da vẫn cứ dở chứng giống tui khum? Mng chia sẻ trải nghiệm với?`;
       } else if (niche === "OFFICE_LIFESTYLE") {
-        mainPost = `Có thể nhiều người không đồng tình, nhưng tui thấy mấy món tiện ích bàn làm việc nhỏ xíu này còn tăng năng suất hơn cả đống app to-do list...\n\nThực tế là không gian ngồi bừa bộn hay tư thế ngồi khó chịu thì vừa làm 15 phút là tụt mood. Đầu tư cho một góc ngồi làm việc thoải mái đem lại tinh thần tích cực tức thì, công việc tự khắc trôi chảy mà không cần gượng ép.\n\nMng thấy sắm đồ cho góc làm việc có thực sự đáng tiền khum?`;
+        mainPost = `Tui nhận ra nhiều khi công việc áp lực 1 thì cái ghế với góc bàn làm việc hành hạ mình tới 10...\n\nNgồi làm việc cả ngày trong văn phòng mà tư thế cứ phải cúi gập người nhìn màn hình, chuột với bàn phím đặt lệch tầm tay làm cổ tay mỏi nhừ. Chiều nào tan làm cũng cảm giác cạn kiệt năng lượng chỉ vì ngồi sai tư thế.\n\nMng ngồi văn phòng cả ngày làm sao để không bị gù lưng với mỏi nhừ người vậy mng?`;
       } else {
         // FASHION
-        mainPost = `Chắc nhiều bạn sẽ phản bác, nhưng tui thấy mặc đồ đắt tiền chưa chắc đã đẹp bằng chọn đúng form dáng và chất liệu...\n\nNhiều người bị ám ảnh bởi logo thương hiệu, nhưng đồ có đắt mà form không ôm vừa vặn thì trông vẫn luộm thuộm. Ngược lại, một set đồ basic, giá rất vừa túi nhưng form chuẩn, tôn dáng người mặc thì nhìn sang hơn gấp bội.\n\nTeam mình nghĩ sao về vụ này? Đồ đắt tiền hay form dáng vừa vặn quan trọng hơn trong mắt mng?`;
+        mainPost = `Tui thấy nỗi khổ lớn nhất khi chọn quần áo không phải là thiếu tiền, mà là mặc gì lên người cũng thấy dìm dáng...\n\nMua đồ theo mẫu mặc trên mạng nhìn mê mẩn, đến lúc ship về mặc thử thì lộ hết khuyết điểm bụng dưới với đùi to. Sáng nào chuẩn bị đi làm cũng thay ra thay vào 4-5 bộ mà vẫn thấy tự ti, mất cả tiếng đồng hồ.\n\nCó ai gặp tình trạng nhìn đồ thì đẹp mà mặc lên người cứ thấy sai sai giống tui khum?`;
       }
     } else {
       // CURATED_LIST
       if (niche === "SKINCARE") {
-        mainPost = `Top những món cứu rỗi làn da mùa này mà tui ước có người chỉ cho tui từ 3 năm trước...\n\nSau chuỗi ngày thử sai không biết bao nhiêu loại mỹ phẩm, tui rút ra 3 món vàng để da luôn căng mướt:\n1. Sữa rửa mặt dịu nhẹ, không căng rát da.\n2. Một em kem dưỡng phục hồi chân ái, khóa ẩm tốt.\n3. Kem chống nắng mỏng nhẹ, nâng tone tự nhiên.\n\nĐặc biệt món số 2 tui dùng tới tuýp thứ 4 rồi vì quá đỉnh.\n\nCác bác đã tìm được chân ái dưỡng da đời mình chưa?`;
+        mainPost = `Combo 3 nỗi sợ lớn nhất của tui mỗi lần da bước vào mùa nhạy cảm ẩm ương:\n\n1. Vừa rửa mặt xong da đã căng rát, đỏ ửng hai bên má.\n2. Mụn ẩn li ti nổi dưới cằm không chịu lặn dù bôi đủ thứ.\n3. Đánh kem chống nắng hay cushion là bị mốc meo, tróc vảy từng mảng.\n\nNhiều lúc nhìn vào gương mà phát khóc vì bất lực luôn ấy.\n\nDa các bác đợt này có ổn khum, ai có kinh nghiệm chăm da nhạy cảm cứu tui với?`
       } else if (niche === "OFFICE_LIFESTYLE") {
-        mainPost = `List 3 món cứu sinh cho dân văn phòng ngồi máy lạnh 8 tiếng, thiếu 1 món là thấy ngày dài lê thê...\n\nMuốn làm việc bền bỉ thì góc bàn nhất định phải có:\n1. Bình giữ nhiệt đựng trà hoặc nước ấm cả ngày.\n2. Đệm kê công thái học hỗ trợ thắt lưng để không bị gù khi gõ phím.\n3. Xịt khoáng mini cấp ẩm da mùa điều hòa.\n\nMón số 2 thực sự là vị cứu tinh của đời tui, từ ngày có nó đi làm về không còn ê ẩm người.\n\nBàn làm việc của các bác đang có những bảo bối gì rồi?`;
+        mainPost = `3 combo hủy diệt sức khỏe của dân công sở mà ngày nào tui cũng phải chịu trận:\n\n1. Màn hình máy tính ngang tầm ngực làm cổ phải cúi gập liên tục.\n2. Ghế ngồi quá cứng làm đau thắt lưng dưới cả ngày.\n3. Máy lạnh phả thẳng vào đầu gây khô họng và đau mỏi vai gáy.\n\nĐi làm kiếm đồng lương mà người ngợm rệu rã hết cả.\n\nCác bác dân văn phòng vượt qua chuỗi ngày ngồi 8 tiếng này bằng cách nào vậy?`;
       } else {
         // FASHION
-        mainPost = `3 món đồ basic mà bất kỳ ai theo style tối giản thanh lịch cũng nên có trong tủ đồ...\n\nMuốn sáng ra khỏi nhà mất đúng 5 phút phối đồ mà ai cũng khen có gu, đây là checklist không thể thiếu:\n1. Áo phông form relaxed chất cotton dày dặn.\n2. Quần ống suông tôn dáng, cạp cao hack chân cực đỉnh.\n3. Một đôi giày basic êm chân, phối gì cũng hợp.\n\nMón số 2 mặc lên nhìn chân dài miên man mà giá lại cực kỳ êm ví.\n\nMng thích style phối đồ nào nhất khi đi làm/đi chơi?`;
+        mainPost = `Top 3 combo mặc đồ khiến tui muốn quay xe đi về ngay lập tức mỗi khi ra đường:\n\n1. Quần cạp thấp ngồi xuống là hở lưng, đứng lên lại phải kéo.\n2. Váy ngắn cũn cỡn gió thổi nhẹ một cái là tim đập chân run.\n3. Vải thô cứng cọ vào người ngứa ngáy khó chịu cả ngày.\n\nNhiều khi chỉ ước có đồ gì mặc vừa xinh vừa an toàn tuyệt đối thôi.\n\nMng có nỗi ám ảnh nào khi chọn đồ mặc ra ngoài khum?`;
       }
     }
 
@@ -160,16 +148,12 @@ export class TextThreadComposerService {
       mainPost = this.trimPostLength(mainPost, 450);
     }
 
-    let productRef = cleanProductName;
+    let productPrefix = "em";
     if (niche === "FASHION") {
-      productRef = `con ${cleanProductName} này`;
-    } else if (niche === "OFFICE_LIFESTYLE") {
-      productRef = `em ${cleanProductName} này`;
-    } else {
-      productRef = `em ${cleanProductName} này`;
+      productPrefix = "con";
     }
 
-    let firstReply = `Nhiều bạn tò mò hỏi thì món tui dùng trong bài là ${productRef} nha. Trộm vía dùng ưng bụng và thấy đáng từng đồng luôn ấy.\n\n`;
+    let firstReply = `U là trời, biết ngay mng sẽ hỏi mà! Tui hay mặc/xài ${productPrefix} ${cleanProductName} này nè, cứu cánh đời tui luôn á. Form dáng vừa vặn mà mặc êm ru không lo gì nữa.\n\n`;
 
     if (options.voucherCode) {
       firstReply += `🎟️ Mã shop: ${options.voucherCode}${options.voucherDiscount ? ` (giảm ${options.voucherDiscount})` : ""}\n`;
@@ -214,7 +198,7 @@ export class TextThreadComposerService {
         productName: cleanProductName,
         niche,
       });
-      const validation = this.validateContent(fallback.mainPost);
+      const validation = this.validateContent(fallback.mainPost, true);
 
       return {
         mainPost: fallback.mainPost,
@@ -238,36 +222,31 @@ export class TextThreadComposerService {
 Bạn là một chuyên gia sáng tạo nội dung hàng đầu trên Meta Threads tại Việt Nam, chuyên viết bài storytelling chân thực, thu hút hàng chục nghìn lượt tương tác tự nhiên từ tệp người dùng Gen Z và Millennial.
 
 Nhiệm vụ của bạn: Viết một cặp bài đăng Threads gồm 2 phần:
-1. MAIN POST (Bài đăng chính):
+1. MAIN POST (Bài đăng chính - Bait Post Thuần Vấn Đề):
    - HARD CONSTRAINT VỀ ĐỘ DÀI: BẮT BUỘC trong khoảng 250 đến 420 ký tự (Meta Threads giới hạn 500 ký tự). TUYỆT ĐỐI KHÔNG viết quá 450 ký tự.
    - Bố cục: Tối đa 2 - 3 đoạn văn ngắn gọn, ngắt dòng thoáng, súc tích.
-   - Giọng điệu: Tự nhiên, gần gũi, đời thường, như một người bạn đang tâm sự trên Threads ("mng", "tui", "nói thật", "chân ái", "u là trời", "khum").
-   - Archetype yêu cầu: ${archetype} (Phong cách: ${
-      archetype === "REGRET_EXPERIENCE"
-        ? "Biết thế mua sớm hơn / Tiếc vì không biết sớm hơn"
-        : archetype === "UNPOPULAR_OPINION"
-        ? "Góc nhìn trái chiều / Tranh luận lành mạnh"
-        : "List đồ cứu rỗi cuộc đời / Curation 3 món tâm đắc"
-    }).
+   - Giọng điệu: Tự nhiên, gần gũi, đời thường, như một người bạn đang tâm sự trên Threads ("mng", "tui", "nói thật", "u là trời", "khum").
+   - Archetype yêu cầu: ${archetype}.
    - Chủ đề / Niche BẮT BUỘC: ${niche}.
    - QUY ĐỊNH NGHIÊM NGẶT THEO NICHE:
      ${
        niche === "FASHION"
-         ? "+ Chủ đề THỜI TRANG: Kể về trải nghiệm phối đồ, form dáng hack chân/eo, chất liệu vải, tự tin ra đường. TUYỆT ĐỐI KHÔNG nhắc đến mụn, da liễu hay dưỡng ẩm!"
+         ? "+ Chủ đề THỜI TRANG: Kể về nỗi ám ảnh/bất tiện khi mặc đồ, sợ hớ hênh, đi đứng lúng túng, form dìm dáng, bí bách. TUYỆT ĐỐI KHÔNG nhắc đến mụn, da liễu hay dưỡng ẩm!"
          : niche === "OFFICE_LIFESTYLE"
-         ? "+ Chủ đề VĂN PHÒNG / LIFESTYLE: Kể về nỗi ám ảnh đau lưng mỏi cổ, tư thế ngồi, setup bàn làm việc, góc làm việc truyền cảm hứng. KHÔNG nhắc mụn hay da dẻ!"
-         : "+ Chủ đề SKINCARE: Kể về phục hồi màng ẩm, tối giản chu trình dưỡng, cấp nước, chống nắng, dịu da."
+         ? "+ Chủ đề VĂN PHÒNG / LIFESTYLE: Kể về nỗi ám ảnh đau lưng mỏi cổ, ngồi sai tư thế, mệt mỏi sau 8 tiếng công sở. KHÔNG nhắc mụn hay da dẻ!"
+         : "+ Chủ đề SKINCARE: Kể về khủng hoảng bùng mụn, da đỏ rát bong tróc, tự ti khi ra đường."
      }
-   - Vấn đề / Nỗi đau: ${options.painPoints?.join(", ") || "vấn đề nan giải đời thường"}.
-   - QUY TẮC BẮT BUỘC CHO MAIN POST:
-     + TUYỆT ĐỐI KHÔNG nhắc tên sản phẩm "${cleanProductName}", không nhắc tên shop/thương hiệu, không nhắc giá tiền, không đính kèm bất kỳ đường link nào.
-     + KẾT BÀI BẮT BUỘC là đúng 1 câu hỏi mở ngắn gọn (dưới 60 ký tự) để kích thích thảo luận dưới phần bình luận (VD: "Có ai bị tình trạng này khum?", "Mng thấy sao về vụ này?").
-     + TUYỆT ĐỐI KHÔNG dùng văn phong bán hàng sáo rỗng. CẤM các cụm từ sau: ${BANNED_MARKETING_WORDS.map((w) => `"${w}"`).join(", ")}.
+   - Vấn đề / Nỗi đau: ${options.painPoints?.join(", ") || "nỗi ám ảnh hoặc sự bất tiện đời thường"}.
+   - QUY TẮC CỐT LÕI CHO MAIN POST (BẮT BUỘC TUÂN THỦ):
+     + TẬP TRUNG 100% VÀO NỖI ĐAU, SỰ KHÓ CHỊU, TÌNH HUỐNG TRỚ TRÊU HOẶC ÁM ẢNH CỦA BẢN THÂN.
+     + TUYỆT ĐỐI KHÔNG khoe khoang 'chân ái', TUYỆT ĐỐI KHÔNG nói 'vậy mà giờ tui mới tìm ra...', TUYỆT ĐỐI KHÔNG NÓI LÀ ĐÃ GIẢI QUYẾT ĐƯỢC VẤN ĐỀ!
+     + TUYỆT ĐỐI KHÔNG gợi ý giải pháp, KHÔNG nhắc tên bất kỳ sản phẩm hay thương hiệu nào ("${cleanProductName}"), không nhắc giá, không đính kèm link.
+     + KẾT BÀI BẮT BUỘC bằng đúng 1 câu hỏi mở xin lời khuyên, đồng cảm hoặc hỏi kinh nghiệm của cộng đồng (VD: 'Có ai từng bị tình trạng này khum, đi đứng sao cho đỡ lo vậy mng?', 'Mng có ai bị giống tui khum, làm sao cho đỡ vậy các bác?').
+     + TUYỆT ĐỐI CẤM các cụm từ sau: ${[...BANNED_MARKETING_WORDS, ...BANNED_BAIT_SOLUTION_WORDS].map((w) => `"${w}"`).join(", ")}.
 
 2. FIRST REPLY (Bình luận đầu tiên - Monetization Payoff):
-   - Giải đáp thắc mắc tự nhiên (như thể trả lời câu hỏi của độc giả).
-   - Tiết lộ tên sản phẩm một cách thân mật: "${cleanProductName}".
-   - Nêu ngắn gọn lý do vì sao nó hiệu quả hoặc mẹo sử dụng thực tế.
+   - Đóng vai chính tác giả quay trở lại bình luận chia sẻ món đồ/cách giải quyết sau khi độc giả tò mò hỏi thăm.
+   - Hook mở đầu BẮT BUỘC theo mẫu: "U là trời, biết ngay mng sẽ hỏi mà! Tui hay ${niche === "FASHION" ? "mặc con" : "dùng em"} ${cleanProductName} này nè..." kèm lý do ngắn gọn vì sao nó cứu cánh nỗi đau trên.
    ${options.voucherCode ? `- Đính kèm mã voucher: "🎟️ Mã shop: ${options.voucherCode} ${options.voucherDiscount ? `(giảm ${options.voucherDiscount})` : ""}"` : ""}
    ${options.priceFormatted ? `- Đính kèm mức giá: "💵 Giá tham khảo: ~${options.priceFormatted}"` : ""}
    - Đính kèm link affiliate: "🔗 Link tui mua ở đây nhé mng: ${options.affiliateUrl}".
@@ -315,7 +294,7 @@ Trả về định dạng JSON thuần túy (không thêm markdown backticks th�
             cleanedFirstReply += `\n\n🔗 Link tui mua ở đây nhé: ${options.affiliateUrl}`;
           }
 
-          const validation = this.validateContent(cleanedMainPost);
+          const validation = this.validateContent(cleanedMainPost, true);
 
           return {
             mainPost: cleanedMainPost,
@@ -344,7 +323,7 @@ Trả về định dạng JSON thuần túy (không thêm markdown backticks th�
       productName: cleanProductName,
       niche,
     });
-    const validation = this.validateContent(fallback.mainPost);
+    const validation = this.validateContent(fallback.mainPost, true);
 
     return {
       mainPost: fallback.mainPost,

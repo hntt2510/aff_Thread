@@ -26,6 +26,7 @@ import {
   ExternalLink,
   DollarSign,
   MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import type { PostWithAccount } from "@/services/post.service";
 import { formatInTimezone, parseLocalDateTimeToUtc, DEFAULT_TIMEZONE } from "@/lib/date/timezone";
@@ -478,6 +479,16 @@ function PostsContent() {
                           <MessageSquare className="w-3 h-3 text-amber-600" />
                           Chờ thả bình luận
                         </span>
+                      ) : post.replySeeding.status === "PENDING_METRIC_CHECK" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-800 border border-purple-200" title="Chờ mốc tương tác (≥ 300 views hoặc ≥ 2 bình luận)">
+                          <Sparkles className="w-3 h-3 text-purple-600" />
+                          🎯 Chờ mốc: 300 views / 2 cmt
+                        </span>
+                      ) : post.replySeeding.status === "EXPIRED" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200" title="Hết hạn chờ mốc tương tác mà chưa đạt">
+                          <XCircle className="w-3 h-3 text-rose-600" />
+                          Đã hủy (Không đạt mốc)
+                        </span>
                       ) : post.replySeeding.status === "READY" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200" title="Đang hẹn giờ thả bình luận tự động">
                           <Clock className="w-3 h-3 text-sky-600" />
@@ -513,6 +524,10 @@ function PostsContent() {
                           ? "Live trên Threads"
                           : post.replySeeding.status === "PENDING_TRIGGER"
                           ? "Chờ bấm thả (Pending Drop)"
+                          : post.replySeeding.status === "PENDING_METRIC_CHECK"
+                          ? "Chờ mốc tương tác (≥ 300 views / 2 cmt)"
+                          : post.replySeeding.status === "EXPIRED"
+                          ? "Hết hạn (Expired)"
                           : "Hẹn giờ thả"}
                       </span>
                     </div>
@@ -743,6 +758,7 @@ function PostsContent() {
                         {post.replySeeding &&
                           !post.replySeeding.threadsReplyId &&
                           (post.replySeeding.status === "PENDING_TRIGGER" ||
+                            post.replySeeding.status === "PENDING_METRIC_CHECK" ||
                             post.replySeeding.status === "READY") && (
                             <button
                               type="button"

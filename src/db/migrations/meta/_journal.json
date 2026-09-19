@@ -71,6 +71,13 @@
       "when": 1788980000000,
       "tag": "0009_system_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788990000000,
+      "tag": "0010_metric_triggered_replies",
+      "breakpoints": true
     }
   ]
 }

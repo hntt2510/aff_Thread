@@ -34,6 +34,10 @@ export interface PublishResult {
 export interface PublishBaitOptions {
   delayReplyMinutes?: number;
   manualReplyOnly?: boolean;
+  triggerMode?: "DELAY" | "MANUAL" | "ON_METRIC_REACHED";
+  targetViews?: number;
+  targetReplies?: number;
+  maxWaitHours?: number;
 }
 
 export interface BaitPublishResult {
@@ -47,6 +51,10 @@ export interface BaitPublishResult {
   replyId?: string;
   replyStatus?: string;
   scheduledReplyAt?: string | null;
+  triggerMode?: string;
+  targetViews?: number;
+  targetReplies?: number;
+  maxWaitHours?: number;
 }
 
 export interface DirectPublishInput {
@@ -66,6 +74,10 @@ export interface DirectBaitInput {
   directAffiliateUrl?: string;
   delayReplyMinutes?: number;
   manualReplyOnly?: boolean;
+  triggerMode?: "DELAY" | "MANUAL" | "ON_METRIC_REACHED";
+  targetViews?: number;
+  targetReplies?: number;
+  maxWaitHours?: number;
 }
 
 export interface PublishReplyResult {
@@ -74,6 +86,26 @@ export interface PublishReplyResult {
   threadsReplyId: string;
   publishedAt: string;
   threadUrl?: string;
+}
+
+export interface MilestoneCheckDetail {
+  replyId: string;
+  postId: string;
+  threadsPostId: string;
+  views: number;
+  replies: number;
+  targetViews: number;
+  targetReplies: number;
+  status: "TRIGGERED" | "WAITING" | "EXPIRED" | "ERROR";
+  error?: string;
+}
+
+export interface MilestoneCheckResult {
+  checkedCount: number;
+  triggeredCount: number;
+  expiredCount: number;
+  waitingCount: number;
+  details: MilestoneCheckDetail[];
 }
 
 export class ThreadsPublisherService {
@@ -587,7 +619,39 @@ export class ThreadsPublisherService {
       if (replies.length > 0) {
         replyId = replies[0].id;
 
-        if (options?.delayReplyMinutes && options.delayReplyMinutes > 0 && !options.manualReplyOnly) {
+        if (options?.triggerMode === "ON_METRIC_REACHED") {
+          replyStatus = "PENDING_METRIC_CHECK";
+          const targetViews = options.targetViews ?? 300;
+          const targetReplies = options.targetReplies ?? 2;
+          const maxWaitHours = options.maxWaitHours ?? 12;
+
+          await db
+            .update(affiliateReplies)
+            .set({
+              status: "PENDING_METRIC_CHECK",
+              triggerMode: "ON_METRIC_REACHED",
+              targetViews,
+              targetReplies,
+              maxWaitHours,
+              scheduledAt: null,
+              nextEligibleAt: null,
+              updatedAt: publishedAt,
+            })
+            .where(eq(affiliateReplies.id, replyId));
+
+          await db
+            .update(monetizationPlans)
+            .set({
+              status: "PENDING_METRIC_CHECK",
+              triggerMode: "ON_METRIC_REACHED",
+              targetViews,
+              targetReplies,
+              maxWaitHours,
+              scheduledAt: null,
+              updatedAt: publishedAt,
+            })
+            .where(eq(monetizationPlans.id, replyPlanId));
+        } else if (options?.delayReplyMinutes && options.delayReplyMinutes > 0 && !options.manualReplyOnly) {
           const targetSchedule = new Date(publishedAt.getTime() + options.delayReplyMinutes * 60 * 1000);
           scheduledReplyAt = targetSchedule.toISOString();
           replyStatus = "READY";
@@ -596,6 +660,7 @@ export class ThreadsPublisherService {
             .update(affiliateReplies)
             .set({
               status: "READY",
+              triggerMode: "DELAY",
               scheduledAt: targetSchedule,
               nextEligibleAt: targetSchedule,
               updatedAt: publishedAt,
@@ -606,6 +671,7 @@ export class ThreadsPublisherService {
             .update(monetizationPlans)
             .set({
               status: "READY",
+              triggerMode: "DELAY",
               scheduledAt: targetSchedule,
               updatedAt: publishedAt,
             })
@@ -617,6 +683,7 @@ export class ThreadsPublisherService {
             .update(affiliateReplies)
             .set({
               status: "PENDING_TRIGGER",
+              triggerMode: "MANUAL",
               scheduledAt: null,
               nextEligibleAt: null,
               updatedAt: publishedAt,
@@ -627,6 +694,7 @@ export class ThreadsPublisherService {
             .update(monetizationPlans)
             .set({
               status: "PENDING_TRIGGER",
+              triggerMode: "MANUAL",
               scheduledAt: null,
               updatedAt: publishedAt,
             })
@@ -648,6 +716,10 @@ export class ThreadsPublisherService {
       replyId,
       replyStatus,
       scheduledReplyAt,
+      triggerMode: options?.triggerMode || (options?.manualReplyOnly ? "MANUAL" : options?.delayReplyMinutes ? "DELAY" : "MANUAL"),
+      targetViews: options?.targetViews ?? (options?.triggerMode === "ON_METRIC_REACHED" ? 300 : undefined),
+      targetReplies: options?.targetReplies ?? (options?.triggerMode === "ON_METRIC_REACHED" ? 2 : undefined),
+      maxWaitHours: options?.maxWaitHours ?? (options?.triggerMode === "ON_METRIC_REACHED" ? 12 : undefined),
     };
   }
 
@@ -656,7 +728,18 @@ export class ThreadsPublisherService {
    * Creates post and reply plan in database, then publishes ONLY the main bait post.
    */
   async publishDirectBait(input: DirectBaitInput): Promise<BaitPublishResult> {
-    const { accountId, mainPostText, firstReplyText, directAffiliateUrl, delayReplyMinutes, manualReplyOnly } = input;
+    const {
+      accountId,
+      mainPostText,
+      firstReplyText,
+      directAffiliateUrl,
+      delayReplyMinutes,
+      manualReplyOnly,
+      triggerMode,
+      targetViews,
+      targetReplies,
+      maxWaitHours,
+    } = input;
 
     if (!accountId || !accountId.trim()) {
       throw new Error("Missing required accountId");
@@ -720,7 +803,156 @@ export class ThreadsPublisherService {
     return await this.publishBaitPost(createdPost.id, {
       delayReplyMinutes,
       manualReplyOnly,
+      triggerMode,
+      targetViews,
+      targetReplies,
+      maxWaitHours,
     });
+  }
+
+  /**
+   * Polls and checks all affiliate replies waiting in PENDING_METRIC_CHECK status.
+   * If views >= targetViews or replies >= targetReplies, triggers immediate publishing.
+   * If elapsed time > maxWaitHours and metrics not reached, marks as EXPIRED.
+   */
+  async checkAndTriggerMilestoneReplies(): Promise<MilestoneCheckResult> {
+    const pendingReplies = await db
+      .select({
+        reply: affiliateReplies,
+        post: posts,
+      })
+      .from(affiliateReplies)
+      .innerJoin(posts, eq(affiliateReplies.postId, posts.id))
+      .where(eq(affiliateReplies.status, "PENDING_METRIC_CHECK"));
+
+    let triggeredCount = 0;
+    let expiredCount = 0;
+    let waitingCount = 0;
+    const details: MilestoneCheckDetail[] = [];
+    const now = new Date();
+
+    for (const { reply, post } of pendingReplies) {
+      const targetViews = reply.targetViews ?? 300;
+      const targetReplies = reply.targetReplies ?? 2;
+      const maxWaitHours = reply.maxWaitHours ?? 12;
+
+      // Calculate elapsed time from when post was published or created
+      const referenceTime = post.publishedAt ?? post.createdAt ?? reply.createdAt;
+      const elapsedHours = (now.getTime() - referenceTime.getTime()) / (1000 * 60 * 60);
+
+      // 1. Check expiration if past maxWaitHours
+      if (elapsedHours >= maxWaitHours) {
+        await db
+          .update(affiliateReplies)
+          .set({
+            status: "EXPIRED",
+            lastError: `Expired after ${elapsedHours.toFixed(1)} hours without reaching metrics target (${targetViews} views or ${targetReplies} replies)`,
+            updatedAt: now,
+          })
+          .where(eq(affiliateReplies.id, reply.id));
+
+        if (reply.monetizationPlanId) {
+          await db
+            .update(monetizationPlans)
+            .set({
+              status: "EXPIRED",
+              updatedAt: now,
+            })
+            .where(eq(monetizationPlans.id, reply.monetizationPlanId));
+        }
+
+        expiredCount++;
+        details.push({
+          replyId: reply.id,
+          postId: post.id,
+          threadsPostId: post.threadsPostId || "",
+          views: 0,
+          replies: 0,
+          targetViews,
+          targetReplies,
+          status: "EXPIRED",
+        });
+        continue;
+      }
+
+      // If post doesn't have threadsPostId or accountId yet
+      if (!post.threadsPostId || !post.accountId) {
+        waitingCount++;
+        details.push({
+          replyId: reply.id,
+          postId: post.id,
+          threadsPostId: post.threadsPostId || "",
+          views: 0,
+          replies: 0,
+          targetViews,
+          targetReplies,
+          status: "WAITING",
+        });
+        continue;
+      }
+
+      try {
+        const { token } = await accountService.getDecryptedTokenForAccount(post.accountId);
+        const insights = await threadsClient.getPostInsights(token, post.threadsPostId, [
+          "views",
+          "likes",
+          "replies",
+        ]);
+
+        const currentViews = insights.views ?? 0;
+        const currentReplies = insights.replies ?? 0;
+
+        if (currentViews >= targetViews || currentReplies >= targetReplies) {
+          // Milestone reached! Trigger reply publication
+          await this.publishReplyNow({ replyId: reply.id });
+          triggeredCount++;
+          details.push({
+            replyId: reply.id,
+            postId: post.id,
+            threadsPostId: post.threadsPostId,
+            views: currentViews,
+            replies: currentReplies,
+            targetViews,
+            targetReplies,
+            status: "TRIGGERED",
+          });
+        } else {
+          waitingCount++;
+          details.push({
+            replyId: reply.id,
+            postId: post.id,
+            threadsPostId: post.threadsPostId,
+            views: currentViews,
+            replies: currentReplies,
+            targetViews,
+            targetReplies,
+            status: "WAITING",
+          });
+        }
+      } catch (err: unknown) {
+        const safeMsg = sanitizeErrorMessage(err, "Failed to inspect metrics for post");
+        console.error(`Error checking milestone for reply ${reply.id}:`, safeMsg);
+        details.push({
+          replyId: reply.id,
+          postId: post.id,
+          threadsPostId: post.threadsPostId,
+          views: 0,
+          replies: 0,
+          targetViews,
+          targetReplies,
+          status: "ERROR",
+          error: safeMsg,
+        });
+      }
+    }
+
+    return {
+      checkedCount: pendingReplies.length,
+      triggeredCount,
+      expiredCount,
+      waitingCount,
+      details,
+    };
   }
 
   /**

@@ -58,6 +58,16 @@ describe("TextThreadComposerService - Content Validation & Ban Filter", () => {
     expect(result.bannedWordsFound).toHaveLength(0);
     expect(result.wordCount).toBeGreaterThan(5);
   });
+
+  it("flags premature solution reveals and chân ái when isMainPost is true", () => {
+    const revealingBait =
+      "Nói thật trước đây da tui xấu lắm, vậy mà giờ tui mới tìm ra chân ái cứu cánh đời tui!";
+    const result = service.validateContent(revealingBait, true);
+
+    expect(result.hasBannedWords).toBe(true);
+    expect(result.bannedWordsFound).toContain("chân ái");
+    expect(result.bannedWordsFound).toContain("cứu cánh đời tui");
+  });
 });
 
 describe("TextThreadComposerService - 450-Char Limit & Trimming", () => {
@@ -111,11 +121,15 @@ describe("TextThreadComposerService - Deterministic Fallback Generation", () => 
         expect(fallback.mainPost.toLowerCase()).not.toContain("chân váy kaki dáng ngắn có lót trong");
         expect(fallback.mainPost).not.toContain(dummyUrl);
 
-        // 4. Main post has NO banned marketing words
-        const validation = service.validateContent(fallback.mainPost);
+        // 4. Main post has NO banned marketing words and NO premature solution reveals ("chân ái")
+        const validation = service.validateContent(fallback.mainPost, true);
         expect(validation.hasBannedWords).toBe(false);
+        expect(fallback.mainPost.toLowerCase()).not.toContain("chân ái");
+        expect(fallback.mainPost.toLowerCase()).not.toContain("tìm ra giải pháp");
+        expect(fallback.mainPost.toLowerCase()).not.toContain("cuộc đời sang trang");
 
-        // 5. First reply reveals sanitized product name naturally, voucher, and affiliate link
+        // 5. First reply reveals sanitized product name with returning author hook
+        expect(fallback.firstReply).toContain("U là trời, biết ngay mng sẽ hỏi mà!");
         expect(fallback.firstReply).toContain("chân váy kaki dáng ngắn có lót trong");
         expect(fallback.firstReply).not.toContain("BigSize Hannako - fashion Cl");
         expect(fallback.firstReply).toContain(dummyUrl);
