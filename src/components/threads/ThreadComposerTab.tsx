@@ -10,24 +10,30 @@ import {
   Check,
   AlertCircle,
   CheckCircle2,
-  Share2,
   ExternalLink,
   Flame,
-  Layers,
   Tag,
   ShieldCheck,
-  MessageSquare,
-  ArrowRight,
   HelpCircle,
   Rocket,
+  Clipboard,
+  FileText,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  Link as LinkIcon,
+  Wand2,
 } from "lucide-react";
 import {
   type ThreadArchetype,
   type ThreadNiche,
-  type ComposedThreadResult,
   sanitizeProductTitle,
   inferNiche,
 } from "@/lib/threads/thread-composer-utils";
+import {
+  buildThreadsComposerPrompt,
+  parseGeminiResponse,
+} from "@/lib/threads/thread-prompt-builder";
 
 interface AccountOption {
   id: string;
@@ -92,19 +98,31 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   const [priceFormatted, setPriceFormatted] = useState("");
   const [painPoints, setPainPoints] = useState("");
 
-  // UI state
-  const [composing, setComposing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ComposedThreadResult | null>(null);
+  // Gemini Web URL Config
+  const [geminiWebUrl, setGeminiWebUrl] = useState("https://gemini.google.com/app");
+  const [showGeminiConfig, setShowGeminiConfig] = useState(false);
+
+  // Prompt generation & Clipboard state
+  const [generatedPromptText, setGeneratedPromptText] = useState("");
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [promptStatusMessage, setPromptStatusMessage] = useState<string | null>(null);
+
+  // Import & Editor state
+  const [rawGeminiInput, setRawGeminiInput] = useState("");
   const [editableMainPost, setEditableMainPost] = useState("");
   const [editableFirstReply, setEditableFirstReply] = useState("");
   const [copiedMain, setCopiedMain] = useState(false);
   const [copiedReply, setCopiedReply] = useState(false);
+  const [smartSplitSuccess, setSmartSplitSuccess] = useState(false);
+
+  // UI status & error
+  const [error, setError] = useState<string | null>(null);
 
   // Draft & Publishing
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
   const [draftSavedPostId, setDraftSavedPostId] = useState<string | null>(null);
   const [draftSuccessMsg, setDraftSuccessMsg] = useState<string | null>(null);
   const [publishingNow, setPublishingNow] = useState(false);
@@ -112,9 +130,9 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
   const [publishedThreadUrl, setPublishedThreadUrl] = useState<string | null>(null);
   const [replyTimingMode, setReplyTimingMode] = useState<"DELAY_60" | "DELAY_120" | "MANUAL" | "METRIC_MILESTONE">("DELAY_60");
 
-  // Fetch accounts on mount for drafting
+  // Load accounts and custom Gemini URL on mount
   useEffect(() => {
-    async function loadAccounts() {
+    async function loadInitialData() {
       try {
         const res = await fetch("/api/accounts");
         const data = await res.json();
@@ -125,8 +143,26 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       } catch (e) {
         console.warn("Could not load Threads accounts:", e);
       }
+
+      try {
+        const localGemUrl = localStorage.getItem("gemini_web_url");
+        if (localGemUrl) {
+          setGeminiWebUrl(localGemUrl);
+        } else {
+          const sRes = await fetch("/api/settings");
+          const sData = await sRes.json();
+          if (sRes.ok && sData.settings) {
+            const gemSetting = sData.settings.find((s: any) => s.key === "GEMINI_CUSTOM_URL");
+            if (gemSetting?.hasValue && gemSetting.maskedValue) {
+              setGeminiWebUrl(gemSetting.maskedValue);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not load custom Gemini URL:", e);
+      }
     }
-    loadAccounts();
+    loadInitialData();
   }, []);
 
   const handleQuickSelectPool = (item: any) => {
@@ -150,57 +186,80 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
     }
   };
 
-  const handleCompose = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOpenGeminiWithPrompt = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!productName.trim()) {
-      setError("Vui lòng nhập tên sản phẩm.");
+      setError("Vui lòng nhập tên sản phẩm chốt đơn.");
       return;
     }
     if (!affiliateUrl.trim()) {
-      setError("Vui lòng nhập đường link affiliate.");
+      setError("Vui lòng nhập đường dẫn Affiliate Shopee.");
       return;
     }
 
     try {
-      setComposing(true);
       setError(null);
-      setDraftSavedPostId(null);
       setDraftSuccessMsg(null);
       setPublishedThreadUrl(null);
-      setPublishStageMsg(null);
 
-      const res = await fetch("/api/threads/compose-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productName: productName.trim(),
-          affiliateUrl: affiliateUrl.trim(),
-          niche,
-          archetype,
-          voucherCode: voucherCode.trim() || undefined,
-          voucherDiscount: voucherDiscount.trim() || undefined,
-          priceFormatted: priceFormatted.trim() || undefined,
-          painPoints: painPoints.trim() ? [painPoints.trim()] : undefined,
-        }),
+      const prompt = buildThreadsComposerPrompt({
+        productName: productName.trim(),
+        affiliateUrl: affiliateUrl.trim(),
+        niche,
+        archetype,
+        voucherCode: voucherCode.trim() || undefined,
+        voucherDiscount: voucherDiscount.trim() || undefined,
+        priceFormatted: priceFormatted.trim() || undefined,
+        painPoints: painPoints.trim() ? [painPoints.trim()] : undefined,
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Không thể tạo nội dung");
+      setGeneratedPromptText(prompt);
+
+      // 1. Copy prompt to clipboard
+      try {
+        await navigator.clipboard.writeText(prompt);
+        setPromptCopied(true);
+        setTimeout(() => setPromptCopied(false), 3500);
+      } catch (clipErr) {
+        console.warn("Clipboard write failed or blocked:", clipErr);
       }
 
-      setResult(data.data);
-      setEditableMainPost(data.data.mainPost);
-      setEditableFirstReply(data.data.firstReply);
+      // 2. Open Gemini Web / Gem in a new browser tab
+      const targetUrl = geminiWebUrl.trim() || "https://gemini.google.com/app";
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+
+      // 3. Informative feedback
+      setPromptStatusMessage(
+        "⚡ Đã copy prompt vào clipboard & đang mở Gemini Web! Bạn hãy dán (Ctrl+V) vào Gemini, sau đó copy kết quả về dán vào bảng bên phải."
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
-    } finally {
-      setComposing(false);
     }
   };
 
-  const handleCopy = (text: string, isReply: boolean) => {
+  const handleApplyRawGeminiText = () => {
+    if (!rawGeminiInput.trim()) {
+      setError("Vui lòng dán nội dung từ Gemini vào ô dán nhanh.");
+      return;
+    }
+
+    const parsed = parseGeminiResponse(rawGeminiInput);
+    if (!parsed.mainPost && !parsed.firstReply) {
+      setError("Không nhận diện được cấu trúc bài viết. Vui lòng kiểm tra lại nội dung đã copy.");
+      return;
+    }
+
+    setEditableMainPost(parsed.mainPost);
+    if (parsed.firstReply) {
+      setEditableFirstReply(parsed.firstReply);
+    }
+    setError(null);
+    setSmartSplitSuccess(true);
+    setTimeout(() => setSmartSplitSuccess(false), 3000);
+  };
+
+  const handleCopyText = (text: string, isReply: boolean) => {
     navigator.clipboard.writeText(text);
     if (isReply) {
       setCopiedReply(true);
@@ -211,13 +270,24 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
     }
   };
 
-  const handleSaveDraft = async () => {
+  const handleInsertAffiliateLinkToReply = () => {
+    if (!affiliateUrl.trim()) return;
+    if (editableFirstReply.includes(affiliateUrl.trim())) return;
+    const addition = `\n\n👉 Link tui mua chính hãng ở đây nhé mng: ${affiliateUrl.trim()}`;
+    setEditableFirstReply((prev) => (prev ? `${prev.trim()}${addition}` : addition.trim()));
+  };
+
+  const handleSavePlan = async () => {
     if (!selectedAccountId) {
       setError("Vui lòng chọn tài khoản Threads để tạo bản nháp.");
       return;
     }
-    if (!editableMainPost.trim() || !editableFirstReply.trim()) {
-      setError("Nội dung bài viết không được để trống.");
+    if (!editableMainPost.trim()) {
+      setError("Vui lòng nhập hoặc dán nội dung Bài viết chính (Main Post).");
+      return;
+    }
+    if (!editableFirstReply.trim()) {
+      setError("Vui lòng nhập hoặc dán nội dung Bình luận chốt đơn (First Reply).");
       return;
     }
     if (editableMainPost.length > 500) {
@@ -226,7 +296,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
     }
 
     try {
-      setSavingDraft(true);
+      setSavingPlan(true);
       setError(null);
 
       // 1. Create draft post in /api/posts
@@ -250,6 +320,20 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       const createdPostId = postData.post.id;
 
       // 2. Attach first reply draft via /api/shopee/matcher/create-plan
+      const triggerMode =
+        replyTimingMode === "METRIC_MILESTONE"
+          ? "ON_METRIC_REACHED"
+          : replyTimingMode === "MANUAL"
+          ? "MANUAL"
+          : "DELAY";
+
+      const scheduledAt =
+        replyTimingMode === "DELAY_60"
+          ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          : replyTimingMode === "DELAY_120"
+          ? new Date(Date.now() + 120 * 60 * 1000).toISOString()
+          : undefined;
+
       const planRes = await fetch("/api/shopee/matcher/create-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,6 +341,11 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
           postId: createdPostId,
           replyText: editableFirstReply.trim(),
           directAffiliateUrl: affiliateUrl.trim(),
+          triggerMode,
+          targetViews: replyTimingMode === "METRIC_MILESTONE" ? 300 : undefined,
+          targetReplies: replyTimingMode === "METRIC_MILESTONE" ? 2 : undefined,
+          maxWaitHours: replyTimingMode === "METRIC_MILESTONE" ? 12 : undefined,
+          scheduledAt,
         }),
       });
 
@@ -266,12 +355,12 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       }
 
       setDraftSavedPostId(createdPostId);
-      setDraftSuccessMsg("Đã lưu bản nháp thành công kèm kế hoạch trả lời chốt đơn!");
+      setDraftSuccessMsg("Đã lưu bài viết & lập kế hoạch chốt đơn thành công!");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
-      setSavingDraft(false);
+      setSavingPlan(false);
     }
   };
 
@@ -293,6 +382,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       setPublishingNow(true);
       setError(null);
       setPublishedThreadUrl(null);
+
       const triggerMode =
         replyTimingMode === "METRIC_MILESTONE"
           ? "ON_METRIC_REACHED"
@@ -337,7 +427,6 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
       });
 
       const data = await res.json();
-
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Không thể xuất bản bài mồi lên Threads.");
       }
@@ -356,6 +445,9 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
     }
   };
 
+  const hasQuestionMark = editableMainPost.includes("?");
+  const hasAffiliateLinkInReply = affiliateUrl.trim() ? editableFirstReply.includes(affiliateUrl.trim()) : true;
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -364,22 +456,63 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/30">
               <Sparkles className="w-3.5 h-3.5" />
-              Product-First → Story-Driven Copywriting
+              Web-Redirect Prompt Workflow & Manual Import
             </div>
-            <h2 className="text-xl font-bold tracking-tight">High-Converting Text Thread Composer</h2>
+            <h2 className="text-xl font-bold tracking-tight">Threads Copywriting & Deal Publisher</h2>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              Tạo bài viết Threads thuần văn bản (100% không chèn link bài chính để tránh bóp reach), kết bài bằng câu hỏi kích thích hàng chục ngàn bình luận, và tự động chuẩn bị bình luận chốt đơn đính kèm link affiliate.
+              Tạo prompt tối ưu kể chuyện Gen Z, sao chép 1-click và mở tab Gemini Web/Gem. Dán kết quả về để xuất bản bài mồi thuần text và tự động gieo bình luận chốt deal có gắn link affiliate.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setShowGeminiConfig(!showGeminiConfig)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10"
+              title="Cấu hình đường dẫn Gemini Web / Custom Gem"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-300" />
+              <span>Gem URL</span>
+            </button>
             <Link
               href="/settings"
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10"
             >
-              Cấu hình Gemini Key
+              <ExternalLink className="w-3.5 h-3.5" />
+              Cài đặt hệ thống
             </Link>
           </div>
         </div>
+
+        {/* Expandable Gem URL configuration */}
+        {showGeminiConfig && (
+          <div className="mt-4 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center gap-3 animate-in fade-in duration-200">
+            <div className="flex-1 w-full">
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                Đường dẫn Gemini Web / Custom Gem của bạn:
+              </label>
+              <input
+                type="url"
+                value={geminiWebUrl}
+                onChange={(e) => {
+                  setGeminiWebUrl(e.target.value);
+                  localStorage.setItem("gemini_web_url", e.target.value);
+                }}
+                placeholder="https://gemini.google.com/app hoặc link Gem riêng"
+                className="w-full text-xs bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setGeminiWebUrl("https://gemini.google.com/app");
+                localStorage.removeItem("gemini_web_url");
+              }}
+              className="mt-5 text-xs text-indigo-300 hover:text-white underline shrink-0"
+            >
+              Đặt lại mặc định
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Quick Select Candidate Deal */}
@@ -422,14 +555,14 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
         </div>
       )}
 
-      {/* Main Composer Form */}
+      {/* Main Composer Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Col: Setup & Config */}
-        <form onSubmit={handleCompose} className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-5">
+        {/* Left Col: Setup & Action Button */}
+        <form onSubmit={handleOpenGeminiWithPrompt} className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <PenSquare className="w-4 h-4 text-indigo-600" />
-              Thiết lập chiến dịch bài viết
+              1. Thiết lập chiến dịch & Tạo Prompt
             </h3>
             <span className="text-[11px] text-slate-400">Bước 1/2</span>
           </div>
@@ -498,7 +631,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
                 className="w-full text-xs sm:text-sm border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <p className="text-[10px] text-slate-400 mt-1">
-                * Tên sản phẩm sẽ được giữ bí mật trong Main Post và chỉ tiết lộ ở First Reply.
+                * Prompt sẽ tự động giữ bí mật tên sản phẩm trong Main Post và chỉ tiết lộ ở First Reply.
               </p>
             </div>
 
@@ -559,37 +692,80 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             />
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={composing}
-            className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {composing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Đang viết bài Threads với AI...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Tạo Bài Đăng Threads (Gemini 2.5)
-              </>
-            )}
-          </button>
+          {/* Action Button: Mở Gemini & Tạo Prompt */}
+          <div className="pt-2 space-y-2">
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 active:scale-[0.99]"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              <span>⚡ Mở Gemini & Tạo Prompt</span>
+              <ExternalLink className="w-3.5 h-3.5 text-indigo-200" />
+            </button>
+            <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+              Tự động đóng gói prompt chuẩn Gen Z, copy vào Clipboard và mở tab Gemini Web để bạn paste (Ctrl+V) tạo bài.
+            </p>
+          </div>
         </form>
 
-        {/* Right Col: Output & Draft Management */}
+        {/* Right Col: Import, Editor & Plan Workflow */}
         <div className="lg:col-span-7 space-y-4">
+          {/* Error Message */}
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-700 text-xs sm:text-sm">
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-700 text-xs sm:text-sm animate-in fade-in duration-200">
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <div className="flex-1">{error}</div>
             </div>
           )}
 
+          {/* Prompt Copied Status Notification */}
+          {promptStatusMessage && (
+            <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl space-y-2 text-indigo-950 text-xs sm:text-sm animate-in fade-in duration-200">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed font-medium">{promptStatusMessage}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPromptPreview(!showPromptPreview)}
+                  className="px-2.5 py-1 text-xs text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors shrink-0 flex items-center gap-1"
+                >
+                  {showPromptPreview ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {showPromptPreview ? "Ẩn Prompt" : "Xem Prompt"}
+                </button>
+              </div>
+
+              {showPromptPreview && generatedPromptText && (
+                <div className="mt-3 pt-3 border-t border-indigo-200/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-mono text-slate-600 uppercase font-semibold">
+                      Nội dung Prompt đã copy vào clipboard:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedPromptText);
+                        setPromptCopied(true);
+                        setTimeout(() => setPromptCopied(false), 2000);
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] text-indigo-700 font-semibold hover:underline"
+                    >
+                      {promptCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      {promptCopied ? "Đã copy lại!" : "Copy lại"}
+                    </button>
+                  </div>
+                  <pre className="text-[11px] bg-white/80 border border-indigo-100 rounded-lg p-3 text-slate-800 whitespace-pre-wrap font-mono max-h-48 overflow-y-auto leading-relaxed">
+                    {generatedPromptText}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Draft Saved Success Message */}
           {draftSuccessMsg && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-emerald-800 text-xs sm:text-sm">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-emerald-800 text-xs sm:text-sm animate-in fade-in duration-200">
               <div className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 {draftSuccessMsg}
@@ -603,6 +779,7 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             </div>
           )}
 
+          {/* Publishing Stage Message */}
           {publishStageMsg && (
             <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3 text-indigo-900 text-xs sm:text-sm">
               <RefreshCw className="w-5 h-5 text-indigo-600 animate-spin shrink-0" />
@@ -613,8 +790,9 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             </div>
           )}
 
+          {/* Published Thread URL */}
           {publishedThreadUrl && (
-            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-300 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950 shadow-xs">
+            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-300 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950 shadow-xs animate-in fade-in duration-200">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                   <Rocket className="w-5 h-5" />
@@ -648,243 +826,320 @@ export default function ThreadComposerTab({ poolProducts = [], topOffers = [] }:
             </div>
           )}
 
-          {!result && !composing && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 space-y-3">
-              <MessageSquare className="w-12 h-12 mx-auto text-slate-300" />
-              <h4 className="font-semibold text-slate-700 text-sm">Chưa có bài viết nào được tạo</h4>
-              <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                Điền thông tin sản phẩm và click &quot;Tạo Bài Đăng Threads&quot; ở cột bên trái để AI tự động thiết kế bài storytelling và bình luận chốt sale.
-              </p>
-            </div>
-          )}
-
-          {composing && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center text-slate-400 space-y-3">
-              <RefreshCw className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
-              <p className="text-sm font-semibold text-slate-800">Đang tạo nội dung Threads...</p>
-              <p className="text-xs text-slate-400">
-                Áp dụng quy chuẩn Gen Z tiếng Việt, kiểm duyệt từ khóa bán hàng và tối ưu câu hỏi tranh luận.
-              </p>
-            </div>
-          )}
-
-          {result && (
-            <div className="space-y-4 animate-in fade-in duration-300">
-              {/* Main Post Card */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Bài Đăng Chính (Main Post - 100% Pure Text)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-[11px] px-2.5 py-0.5 rounded-full font-mono transition-colors ${
-                        editableMainPost.length > 480
-                          ? "bg-rose-100 text-rose-700 font-bold border border-rose-300 animate-pulse"
-                          : editableMainPost.length > 420
-                          ? "bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
-                          : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {editableMainPost.length} / 450 ký tự {editableMainPost.length > 480 && "(Quá giới hạn!)"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(editableMainPost, false)}
-                      className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
-                      title="Sao chép nội dung"
-                    >
-                      {copiedMain ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
+          {/* Smart Paste / Import Box */}
+          <div className="bg-gradient-to-r from-indigo-50/50 via-slate-50 to-purple-50/50 border border-indigo-100 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+                  <Wand2 className="w-3.5 h-3.5" />
                 </div>
-
-                {/* Badges */}
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    <ShieldCheck className="w-3 h-3" /> Không lộ tên sản phẩm / link
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                    <HelpCircle className="w-3 h-3" /> Kết thúc bằng câu hỏi tương tác
-                  </span>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Dán nhanh toàn bộ kết quả từ Gemini (Tự động tách)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Sao chép toàn bộ phản hồi từ Gemini và dán vào đây để tự động điền Main Post & First Reply
+                  </p>
                 </div>
+              </div>
+              {smartSplitSuccess && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 animate-in fade-in">
+                  <Check className="w-3.5 h-3.5" /> Đã tách thành công!
+                </span>
+              )}
+            </div>
 
-                <textarea
-                  rows={6}
-                  value={editableMainPost}
-                  onChange={(e) => setEditableMainPost(e.target.value)}
-                  className={`w-full text-xs sm:text-sm border rounded-xl p-3.5 leading-relaxed focus:outline-none focus:ring-2 font-sans transition-colors ${
+            <textarea
+              rows={3}
+              value={rawGeminiInput}
+              onChange={(e) => setRawGeminiInput(e.target.value)}
+              placeholder="Dán (Ctrl+V) toàn bộ câu trả lời từ Gemini vào đây (chứa === MAIN POST === và === FIRST REPLY ===)..."
+              className="w-full text-xs font-mono border border-slate-200 rounded-xl p-3 bg-white text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const clipText = await navigator.clipboard.readText();
+                    if (clipText) setRawGeminiInput(clipText);
+                  } catch {
+                    // Fallback to manual paste
+                  }
+                }}
+                className="text-[11px] text-slate-600 hover:text-indigo-600 flex items-center gap-1"
+              >
+                <Clipboard className="w-3.5 h-3.5" /> Dán từ Clipboard
+              </button>
+
+              <button
+                type="button"
+                onClick={handleApplyRawGeminiText}
+                disabled={!rawGeminiInput.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>⚡ Tách & Áp dụng nội dung</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Main Post Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Bài Đăng Chính (Main Post - 100% Pure Text)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full font-mono transition-colors ${
                     editableMainPost.length > 480
-                      ? "border-rose-300 focus:ring-rose-500 bg-rose-50/20 text-rose-950"
-                      : "border-slate-200 focus:ring-indigo-500 text-slate-800"
+                      ? "bg-rose-100 text-rose-700 font-bold border border-rose-300 animate-pulse"
+                      : editableMainPost.length > 420
+                      ? "bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
+                      : "bg-slate-100 text-slate-600"
                   }`}
-                />
-
-                {editableMainPost.length > 480 && (
-                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-medium">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Bài viết đang dài {editableMainPost.length} ký tự (vượt quá mức 480 ký tự cho phép). Vui lòng rút gọn bớt để đủ điều kiện đăng bài mồi.</span>
-                  </div>
-                )}
-              </div>
-
-              {/* First Reply Card */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Bình Luận Chốt Deal (First Reply Payoff)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(editableFirstReply, true)}
-                      className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
-                      title="Sao chép bình luận"
-                    >
-                      {copiedReply ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <textarea
-                  rows={5}
-                  value={editableFirstReply}
-                  onChange={(e) => setEditableFirstReply(e.target.value)}
-                  className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl p-3.5 text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 font-sans"
-                />
-              </div>
-
-              {/* Draft & Publish Action Box */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4">
-                <div className="w-full">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Chọn tài khoản Threads để lưu nháp / đăng bài
-                  </label>
-                  <select
-                    value={selectedAccountId}
-                    onChange={(e) => setSelectedAccountId(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {accounts.length === 0 && <option value="">Chưa kết nối tài khoản Threads</option>}
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        @{acc.username} ({acc.displayName})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Reply Seeding Timing Controls */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-200/60">
-                  <label className="block text-[11px] font-semibold text-slate-700">
-                    Thời điểm gieo bình luận chốt deal (Reply Seeding):
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setReplyTimingMode("DELAY_60")}
-                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
-                        replyTimingMode === "DELAY_60"
-                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="block font-medium">🕒 Sau 60 phút</span>
-                      <span className="text-[10px] text-slate-400 block font-normal">Đợi bài có view tự nhiên</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReplyTimingMode("DELAY_120")}
-                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
-                        replyTimingMode === "DELAY_120"
-                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="block font-medium">🕒 Sau 120 phút</span>
-                      <span className="text-[10px] text-slate-400 block font-normal">An toàn reach tối đa</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReplyTimingMode("METRIC_MILESTONE")}
-                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
-                        replyTimingMode === "METRIC_MILESTONE"
-                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="block font-medium">🎯 Khi đạt mốc</span>
-                      <span className="text-[10px] text-slate-400 block font-normal">≥ 300 views hoặc ≥ 2 cmt</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReplyTimingMode("MANUAL")}
-                      className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
-                        replyTimingMode === "MANUAL"
-                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="block font-medium">✋ Thả thủ công</span>
-                      <span className="text-[10px] text-slate-400 block font-normal">Bấm thả trong Posts khi viral</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2 border-t border-slate-200/80">
-                  <button
-                    type="button"
-                    onClick={handleSaveDraft}
-                    disabled={savingDraft || publishingNow || !selectedAccountId}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
-                  >
-                    {savingDraft ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Đang lưu...
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-600" />
-                        Lưu Draft & Kế Hoạch Reply
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handlePublishNow}
-                    disabled={
-                      savingDraft ||
-                      publishingNow ||
-                      !selectedAccountId ||
-                      editableMainPost.length > 480 ||
-                      !editableMainPost.trim()
-                    }
-                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
-                  >
-                    {publishingNow ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Đang đăng bài mồi...
-                      </>
-                    ) : (
-                      <>
-                        <Rocket className="w-4 h-4 text-amber-300" />
-                        🚀 Đăng bài mồi ngay (Publish Bait Post)
-                      </>
-                    )}
-                  </button>
-                </div>
+                >
+                  {editableMainPost.length} / 450 ký tự {editableMainPost.length > 480 && "(Quá giới hạn!)"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(editableMainPost, false)}
+                  className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+                  title="Sao chép nội dung bài chính"
+                >
+                  {copiedMain ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                </button>
               </div>
             </div>
-          )}
+
+            {/* Badges */}
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                <ShieldCheck className="w-3 h-3" /> Thuần văn bản, không kèm link
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border ${
+                  hasQuestionMark
+                    ? "text-indigo-700 bg-indigo-50 border-indigo-200"
+                    : "text-amber-700 bg-amber-50 border-amber-200"
+                }`}
+              >
+                <HelpCircle className="w-3 h-3" />
+                {hasQuestionMark ? "Đã có câu hỏi chốt bài" : "Nên có câu hỏi xin lời khuyên cuối bài (?)"}
+              </span>
+            </div>
+
+            <textarea
+              rows={6}
+              value={editableMainPost}
+              onChange={(e) => setEditableMainPost(e.target.value)}
+              placeholder="Dán hoặc viết nội dung bài mồi chính tại đây (tập trung vào nỗi đau/vấn đề, không nhắc tên sản phẩm, kết bài bằng câu hỏi nhờ tư vấn)..."
+              className={`w-full text-xs sm:text-sm border rounded-xl p-3.5 leading-relaxed focus:outline-none focus:ring-2 font-sans transition-colors ${
+                editableMainPost.length > 480
+                  ? "border-rose-300 focus:ring-rose-500 bg-rose-50/20 text-rose-950"
+                  : "border-slate-200 focus:ring-indigo-500 text-slate-800"
+              }`}
+            />
+
+            {editableMainPost.length > 480 && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>
+                  Bài viết đang dài {editableMainPost.length} ký tự (vượt quá mức 480 ký tự cho phép). Vui lòng rút gọn bớt để đảm bảo đủ điều kiện đăng lên Threads.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* First Reply Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Bình Luận Chốt Deal (First Reply Payoff)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(editableFirstReply, true)}
+                  className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+                  title="Sao chép bình luận"
+                >
+                  {copiedReply ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Badges & Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border ${
+                  hasAffiliateLinkInReply
+                    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                    : "text-amber-700 bg-amber-50 border-amber-200"
+                }`}
+              >
+                <LinkIcon className="w-3 h-3" />
+                {hasAffiliateLinkInReply ? "Đã có link Shopee Affiliate" : "Chưa có link affiliate trong bình luận"}
+              </span>
+
+              {!hasAffiliateLinkInReply && affiliateUrl.trim() && (
+                <button
+                  type="button"
+                  onClick={handleInsertAffiliateLinkToReply}
+                  className="text-indigo-600 hover:text-indigo-800 font-semibold underline"
+                >
+                  + Chèn link affiliate vào cuối
+                </button>
+              )}
+            </div>
+
+            <textarea
+              rows={5}
+              value={editableFirstReply}
+              onChange={(e) => setEditableFirstReply(e.target.value)}
+              placeholder="Dán hoặc viết nội dung bình luận chốt deal tại đây (mở đầu tự nhiên: 'U là trời, biết ngay mng sẽ hỏi mà! Tui hay xài em...', voucher, giá và link Shopee)..."
+              className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl p-3.5 text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 font-sans"
+            />
+          </div>
+
+          {/* Draft & Publish Action Box */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4">
+            <div className="w-full">
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Chọn tài khoản Threads để lưu kế hoạch / đăng bài
+              </label>
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {accounts.length === 0 && <option value="">Chưa kết nối tài khoản Threads</option>}
+                {accounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    @{acc.username} ({acc.displayName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Reply Seeding Timing Controls */}
+            <div className="space-y-1.5 pt-1 border-t border-slate-200/60">
+              <label className="block text-[11px] font-semibold text-slate-700">
+                Thời điểm gieo bình luận chốt deal (Reply Seeding):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReplyTimingMode("DELAY_60")}
+                  className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                    replyTimingMode === "DELAY_60"
+                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block font-medium">🕒 Sau 60 phút</span>
+                  <span className="text-[10px] text-slate-400 block font-normal">Đợi bài có view tự nhiên</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplyTimingMode("DELAY_120")}
+                  className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                    replyTimingMode === "DELAY_120"
+                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block font-medium">🕒 Sau 120 phút</span>
+                  <span className="text-[10px] text-slate-400 block font-normal">An toàn reach tối đa</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplyTimingMode("METRIC_MILESTONE")}
+                  className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                    replyTimingMode === "METRIC_MILESTONE"
+                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block font-medium">🎯 Khi đạt mốc</span>
+                  <span className="text-[10px] text-slate-400 block font-normal">≥ 300 views hoặc ≥ 2 cmt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplyTimingMode("MANUAL")}
+                  className={`px-3 py-2 rounded-xl text-left border text-xs transition-all ${
+                    replyTimingMode === "MANUAL"
+                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold ring-1 ring-indigo-400"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block font-medium">✋ Thả thủ công</span>
+                  <span className="text-[10px] text-slate-400 block font-normal">Bấm thả trong Posts khi viral</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2 border-t border-slate-200/80">
+              <button
+                type="button"
+                onClick={handleSavePlan}
+                disabled={
+                  savingPlan ||
+                  publishingNow ||
+                  !selectedAccountId ||
+                  !editableMainPost.trim() ||
+                  !editableFirstReply.trim() ||
+                  editableMainPost.length > 500
+                }
+                className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+              >
+                {savingPlan ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Đang lưu kế hoạch...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    Lưu bài viết & Lập kế hoạch (Save Plan)
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePublishNow}
+                disabled={
+                  savingPlan ||
+                  publishingNow ||
+                  !selectedAccountId ||
+                  editableMainPost.length > 480 ||
+                  !editableMainPost.trim()
+                }
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+              >
+                {publishingNow ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Đang đăng bài mồi...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="w-4 h-4 text-amber-300" />
+                    🚀 Đăng bài mồi ngay (Publish Bait Post)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

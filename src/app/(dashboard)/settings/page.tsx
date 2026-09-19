@@ -40,6 +40,12 @@ const PRESET_KEYS = [
     placeholder: "gemini-2.5-flash",
   },
   {
+    key: "GEMINI_CUSTOM_URL",
+    label: "Gemini Web / Gem URL",
+    desc: "Đường dẫn ứng dụng Gemini Web hoặc Custom Gem viết bài Threads (mặc định: https://gemini.google.com/app)",
+    placeholder: "https://gemini.google.com/app",
+  },
+  {
     key: "OPENAI_API_KEY",
     label: "OpenAI API Key",
     desc: "Optional fallback LLM provider",

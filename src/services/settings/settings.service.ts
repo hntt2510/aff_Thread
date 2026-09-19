@@ -16,6 +16,7 @@ export interface MaskedSetting {
 export const KNOWN_SETTING_KEYS = [
   { key: "GEMINI_API_KEY", description: "Google Gemini API Key for AI text thread generation" },
   { key: "GEMINI_MODEL", description: "Gemini Model Name (e.g. gemini-2.5-flash, gemini-1.5-flash)" },
+  { key: "GEMINI_CUSTOM_URL", description: "Custom Gemini Web App or Gem URL (default: https://gemini.google.com/app)" },
   { key: "OPENAI_API_KEY", description: "OpenAI API Key (optional)" },
   { key: "TIKW_API_KEY", description: "TikW-API Key for TikTok trending discovery" },
 ] as const;
