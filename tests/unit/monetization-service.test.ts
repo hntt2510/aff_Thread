@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { monetizationService } from "@/services/monetization.service";
+import {
+  monetizationService,
+  sanitizeNumericField,
+  sanitizeTimestampField,
+  sanitizeIntegerFieldWithDefault,
+} from "@/services/monetization.service";
 import { db } from "@/db";
 import {
   posts,
@@ -12,6 +17,87 @@ import {
 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
+
+describe("Monetization Field Sanitizers", () => {
+  describe("sanitizeNumericField", () => {
+    it("converts empty strings, whitespace, null, and undefined to null", () => {
+      expect(sanitizeNumericField("")).toBeNull();
+      expect(sanitizeNumericField("   ")).toBeNull();
+      expect(sanitizeNumericField(null)).toBeNull();
+      expect(sanitizeNumericField(undefined)).toBeNull();
+      expect(sanitizeNumericField("null")).toBeNull();
+      expect(sanitizeNumericField("undefined")).toBeNull();
+    });
+
+    it("converts NaN and non-numeric strings to null", () => {
+      expect(sanitizeNumericField(NaN)).toBeNull();
+      expect(sanitizeNumericField("NaN")).toBeNull();
+      expect(sanitizeNumericField("abc")).toBeNull();
+      expect(sanitizeNumericField({})).toBeNull();
+    });
+
+    it("preserves valid numbers and casts numeric strings", () => {
+      expect(sanitizeNumericField(0)).toBe(0);
+      expect(sanitizeNumericField("0")).toBe(0);
+      expect(sanitizeNumericField(75)).toBe(75);
+      expect(sanitizeNumericField("75")).toBe(75);
+      expect(sanitizeNumericField("  75  ")).toBe(75);
+      expect(sanitizeNumericField(75.4)).toBe(75);
+      expect(sanitizeNumericField("75.6")).toBe(76);
+    });
+  });
+
+  describe("sanitizeTimestampField", () => {
+    it("converts empty strings, whitespace, null, and undefined to null", () => {
+      expect(sanitizeTimestampField("")).toBeNull();
+      expect(sanitizeTimestampField("   ")).toBeNull();
+      expect(sanitizeTimestampField(null)).toBeNull();
+      expect(sanitizeTimestampField(undefined)).toBeNull();
+      expect(sanitizeTimestampField("null")).toBeNull();
+      expect(sanitizeTimestampField("undefined")).toBeNull();
+    });
+
+    it("converts invalid date strings and invalid Date instances to null", () => {
+      expect(sanitizeTimestampField("invalid-date-string")).toBeNull();
+      expect(sanitizeTimestampField(new Date("invalid"))).toBeNull();
+      expect(sanitizeTimestampField({})).toBeNull();
+    });
+
+    it("preserves valid Date instances and parses ISO date strings", () => {
+      const now = new Date();
+      const resultDate = sanitizeTimestampField(now);
+      expect(resultDate).toBeInstanceOf(Date);
+      expect(resultDate?.getTime()).toBe(now.getTime());
+
+      const iso = "2026-09-19T21:00:00.000Z";
+      const parsedIso = sanitizeTimestampField(iso);
+      expect(parsedIso).toBeInstanceOf(Date);
+      expect(parsedIso?.toISOString()).toBe(iso);
+
+      const epoch = 1726780000000;
+      const parsedEpoch = sanitizeTimestampField(epoch);
+      expect(parsedEpoch).toBeInstanceOf(Date);
+      expect(parsedEpoch?.getTime()).toBe(epoch);
+    });
+  });
+
+  describe("sanitizeIntegerFieldWithDefault", () => {
+    it("falls back to default when input is empty string or null", () => {
+      expect(sanitizeIntegerFieldWithDefault("", 300)).toBe(300);
+      expect(sanitizeIntegerFieldWithDefault("   ", 300)).toBe(300);
+      expect(sanitizeIntegerFieldWithDefault(null, 2)).toBe(2);
+      expect(sanitizeIntegerFieldWithDefault(undefined, 12)).toBe(12);
+      expect(sanitizeIntegerFieldWithDefault("abc", 10)).toBe(10);
+    });
+
+    it("uses provided valid value over default", () => {
+      expect(sanitizeIntegerFieldWithDefault(500, 300)).toBe(500);
+      expect(sanitizeIntegerFieldWithDefault("500", 300)).toBe(500);
+      expect(sanitizeIntegerFieldWithDefault(0, 300)).toBe(0);
+      expect(sanitizeIntegerFieldWithDefault("0", 300)).toBe(0);
+    });
+  });
+});
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 let isDbReachable = false;
@@ -252,6 +338,98 @@ describe.skipIf(!isDbReachable)("Monetization Service", () => {
       .where(eq(affiliateReplies.monetizationPlanId, created.plan.id));
 
     expect(reply.status).toBe("CANCELLED");
+  });
+
+  it("safely handles empty strings for scoreAtCreation, scheduledAt, and numeric fields without PostgreSQL type errors", async () => {
+    const [account] = await db
+      .insert(threadsAccounts)
+      .values({
+        threadsUserId: "user_monetize_empty_str",
+        username: "monetize_user_empty",
+        displayName: "Monetize User Empty",
+        encryptedAccessToken: "enc_empty",
+        tokenIv: "iv_empty",
+        tokenAuthTag: "tag_empty",
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const [post] = await db
+      .insert(posts)
+      .values({
+        accountId: account.id,
+        accountThreadsUserId: account.threadsUserId,
+        accountUsername: account.username,
+        accountDisplayName: account.displayName,
+        text: "Post for empty string sanitizer test",
+        threadsPostId: "tp_parent_empty_str",
+        status: "PUBLISHED",
+      })
+      .returning();
+
+    // Call createPlan with empty strings (as received from HTTP JSON payloads)
+    const created = await monetizationService.createPlan({
+      postId: post.id,
+      source: "SHOPEE_DEAL_ENGINE",
+      scoreAtCreation: "" as any,
+      scheduledAt: "" as any,
+      targetViews: "" as any,
+      targetReplies: "" as any,
+      maxWaitHours: "" as any,
+      replies: [
+        {
+          replyText: "Con đầm này nè: https://s.shopee.vn/sampleSanitize",
+          scheduledAt: "" as any,
+          sequenceNo: "" as any,
+          links: [
+            {
+              destinationUrl: "https://s.shopee.vn/sampleSanitize",
+              position: "" as any,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(created.plan).toBeDefined();
+    expect(created.plan.scoreAtCreation).toBeNull();
+    expect(created.plan.scheduledAt).toBeNull();
+    expect(created.plan.targetViews).toBe(300);
+    expect(created.plan.targetReplies).toBe(2);
+    expect(created.plan.maxWaitHours).toBe(12);
+    expect(created.plan.source).toBe("SHOPEE_DEAL_ENGINE");
+
+    // Verify raw PostgreSQL values in monetization_plans table
+    const [dbPlan] = await db
+      .select()
+      .from(monetizationPlans)
+      .where(eq(monetizationPlans.id, created.plan.id));
+
+    expect(dbPlan.scoreAtCreation).toBeNull();
+    expect(dbPlan.scheduledAt).toBeNull();
+    expect(dbPlan.targetViews).toBe(300);
+    expect(dbPlan.targetReplies).toBe(2);
+    expect(dbPlan.maxWaitHours).toBe(12);
+
+    // Verify raw PostgreSQL values in affiliate_replies table
+    const [dbReply] = await db
+      .select()
+      .from(affiliateReplies)
+      .where(eq(affiliateReplies.monetizationPlanId, created.plan.id));
+
+    expect(dbReply.scheduledAt).toBeNull();
+    expect(dbReply.sequenceNo).toBe(1);
+    expect(dbReply.targetViews).toBe(300);
+    expect(dbReply.targetReplies).toBe(2);
+    expect(dbReply.maxWaitHours).toBe(12);
+
+    // Verify raw PostgreSQL values in affiliate_reply_links table
+    const [dbLink] = await db
+      .select()
+      .from(affiliateReplyLinks)
+      .where(eq(affiliateReplyLinks.affiliateReplyId, dbReply.id));
+
+    expect(dbLink.position).toBe(0);
   });
 
   afterAll(async () => {

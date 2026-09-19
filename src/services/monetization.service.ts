@@ -19,6 +19,63 @@ import { monetizationScoringService } from "./monetization-scoring.service";
 import { insightsCollectorService } from "./insights-collector.service";
 import { sanitizeErrorMessage } from "@/lib/errors/sanitizer";
 
+/**
+ * Sanitizes numeric inputs: parses numbers/numeric strings.
+ * If empty string, whitespace, null, undefined, or NaN, explicitly returns null.
+ */
+export function sanitizeNumericField(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "undefined") {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return isNaN(parsed) ? null : Math.round(parsed);
+  }
+  if (typeof value === "number") {
+    return isNaN(value) ? null : Math.round(value);
+  }
+  return null;
+}
+
+/**
+ * Sanitizes timestamp inputs: parses Date objects, ISO strings, or epoch numbers.
+ * If empty string, whitespace, null, undefined, or invalid Date, explicitly returns null.
+ */
+export function sanitizeTimestampField(value: unknown): Date | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "undefined") {
+      return null;
+    }
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "number") {
+    if (isNaN(value) || value <= 0) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/**
+ * Sanitizes integer inputs with a fallback default value.
+ */
+export function sanitizeIntegerFieldWithDefault(value: unknown, defaultValue: number): number {
+  const parsed = sanitizeNumericField(value);
+  return parsed !== null ? parsed : defaultValue;
+}
+
 export interface ReplyLinkInput {
   destinationUrl: string;
   label?: string;
@@ -29,14 +86,21 @@ export interface ReplyLinkInput {
 export interface ReplyItemInput {
   replyText: string;
   sequenceNo?: number;
-  scheduledAt?: string | null;
+  scheduledAt?: string | Date | null;
   links?: ReplyLinkInput[];
 }
 
 export interface CreateMonetizationPlanInput {
   postId: string;
   source?: "MANUAL" | "RULE_ENGINE" | "SHOPEE_DEAL_ENGINE";
-  scheduledAt?: string | null;
+  scoreAtCreation?: number | string | null;
+  score?: number | string | null;
+  scheduledAt?: string | Date | null;
+  targetPublishAt?: string | Date | null;
+  triggerMode?: "DELAY" | "MANUAL" | "ON_METRIC_REACHED";
+  targetViews?: number | string | null;
+  targetReplies?: number | string | null;
+  maxWaitHours?: number | string | null;
   replies: ReplyItemInput[];
 }
 
@@ -315,9 +379,25 @@ export class MonetizationService {
       throw new Error("Monetization plan cannot exceed 5 replies per plan");
     }
 
-    // Get current post state / score
+    // 1. Get current post state / score and sanitize scoreAtCreation
     const currentState = await this.getMonetizationState(post.id);
-    const scoreAtCreation = currentState?.currentScore ?? null;
+    const rawScore =
+      input.scoreAtCreation !== undefined
+        ? input.scoreAtCreation
+        : input.score !== undefined
+        ? input.score
+        : currentState?.currentScore;
+    const scoreAtCreation = sanitizeNumericField(rawScore);
+
+    // 2. Sanitize scheduledAt for the plan
+    const rawSchedule = input.scheduledAt !== undefined ? input.scheduledAt : input.targetPublishAt;
+    const scheduledAt = sanitizeTimestampField(rawSchedule);
+
+    // 3. Sanitize milestone metric thresholds
+    const triggerMode = input.triggerMode ?? "DELAY";
+    const targetViews = sanitizeIntegerFieldWithDefault(input.targetViews, 300);
+    const targetReplies = sanitizeIntegerFieldWithDefault(input.targetReplies, 2);
+    const maxWaitHours = sanitizeIntegerFieldWithDefault(input.maxWaitHours, 12);
 
     // Validate URLs and reply text
     const validatedReplies: Array<{
@@ -330,7 +410,7 @@ export class MonetizationService {
     for (let i = 0; i < input.replies.length; i++) {
       const rep = input.replies[i];
       let replyText = rep.replyText ? rep.replyText.trim() : "";
-      const sequenceNo = rep.sequenceNo ?? i + 1;
+      const sequenceNo = sanitizeIntegerFieldWithDefault(rep.sequenceNo, i + 1);
 
       if (!replyText) {
         throw new Error(`Reply #${i + 1} text cannot be empty`);
@@ -361,7 +441,7 @@ export class MonetizationService {
           links.push({
             destinationUrl: rawUrl,
             label: lk.label?.trim() || null as any,
-            position: j,
+            position: sanitizeIntegerFieldWithDefault(lk.position, j),
             metadataJson: lk.metadataJson || null as any,
           });
 
@@ -372,12 +452,8 @@ export class MonetizationService {
         }
       }
 
-      let parsedSchedule: Date | null = null;
-      if (rep.scheduledAt) {
-        parsedSchedule = new Date(rep.scheduledAt);
-      } else if (input.scheduledAt) {
-        parsedSchedule = new Date(input.scheduledAt);
-      }
+      const rawRepSchedule = rep.scheduledAt !== undefined ? rep.scheduledAt : scheduledAt;
+      const parsedSchedule = sanitizeTimestampField(rawRepSchedule);
 
       validatedReplies.push({
         replyText,
@@ -395,7 +471,11 @@ export class MonetizationService {
         status: "READY",
         source: input.source || "MANUAL",
         scoreAtCreation,
-        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+        scheduledAt,
+        triggerMode,
+        targetViews,
+        targetReplies,
+        maxWaitHours,
       })
       .returning();
 
@@ -415,6 +495,10 @@ export class MonetizationService {
           status: "READY",
           idempotencyKey,
           scheduledAt: vRep.scheduledAt,
+          triggerMode,
+          targetViews,
+          targetReplies,
+          maxWaitHours,
         })
         .returning();
 

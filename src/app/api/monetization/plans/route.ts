@@ -16,10 +16,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Monetization plan must contain at least one reply" }, { status: 400 });
     }
 
+    const rawSchedule = body.scheduledAt !== undefined ? body.scheduledAt : body.targetPublishAt;
+    const rawScore = body.scoreAtCreation !== undefined ? body.scoreAtCreation : body.score;
+
     const result = await monetizationService.createPlan({
       postId: body.postId,
       source: body.source || "MANUAL",
-      scheduledAt: body.scheduledAt || null,
+      scheduledAt: rawSchedule ?? null,
+      scoreAtCreation: rawScore ?? null,
+      triggerMode: body.triggerMode,
+      targetViews: body.targetViews,
+      targetReplies: body.targetReplies,
+      maxWaitHours: body.maxWaitHours,
       replies: body.replies,
     });
 

@@ -7,7 +7,19 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, replyText, directAffiliateUrl, targetPublishAt } = body;
+    const {
+      postId,
+      replyText,
+      directAffiliateUrl,
+      targetPublishAt,
+      scheduledAt,
+      score,
+      scoreAtCreation,
+      triggerMode,
+      targetViews,
+      targetReplies,
+      maxWaitHours,
+    } = body;
 
     if (!postId || !replyText) {
       return NextResponse.json(
@@ -16,15 +28,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const planSchedule = targetPublishAt !== undefined ? targetPublishAt : scheduledAt;
+    const planScore = scoreAtCreation !== undefined ? scoreAtCreation : score;
+
     // Create DRAFT monetization plan
     const planResult = await monetizationService.createPlan({
       postId,
       source: "SHOPEE_DEAL_ENGINE",
-      scheduledAt: targetPublishAt || null,
+      scheduledAt: planSchedule,
+      scoreAtCreation: planScore,
+      triggerMode,
+      targetViews,
+      targetReplies,
+      maxWaitHours,
       replies: [
         {
           sequenceNo: 1,
-          scheduledAt: targetPublishAt || null,
+          scheduledAt: planSchedule,
           replyText: replyText.trim(),
           links: directAffiliateUrl
             ? [
